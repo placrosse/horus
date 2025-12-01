@@ -684,7 +684,10 @@ pub fn render_notifications_system(
     config: Res<NotificationConfig>,
     mut action_events: EventWriter<NotificationActionEvent>,
 ) {
-    let ctx = contexts.ctx_mut();
+    // Safely get egui context - may not be initialized on first frame
+    let Some(ctx) = contexts.try_ctx_mut() else {
+        return;
+    };
     let screen_rect = ctx.screen_rect();
 
     // Calculate starting position based on config
@@ -842,13 +845,27 @@ impl Plugin for NotificationsPlugin {
             .add_event::<NotificationActionEvent>()
             .add_systems(
                 Update,
-                (
-                    process_notify_events,
-                    update_notifications_system,
-                    render_notifications_system,
-                )
-                    .chain(),
+                (process_notify_events, update_notifications_system).chain(),
             );
+
+        #[cfg(feature = "visual")]
+        {
+            use bevy_egui::EguiSet;
+            app.add_systems(
+                Update,
+                render_notifications_system
+                    .after(update_notifications_system)
+                    .after(EguiSet::InitContexts),
+            );
+        }
+
+        #[cfg(not(feature = "visual"))]
+        {
+            app.add_systems(
+                Update,
+                render_notifications_system.after(update_notifications_system),
+            );
+        }
     }
 }
 

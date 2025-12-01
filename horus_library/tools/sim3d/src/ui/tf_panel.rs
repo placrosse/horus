@@ -98,17 +98,166 @@ impl TFStats {
 }
 
 #[cfg(feature = "visual")]
-/// Main TF panel system
+use crate::ui::dock::DockConfig;
+
+#[cfg(feature = "visual")]
+/// Render the TF tree UI content (reusable in both floating window and dock tab)
+pub fn render_tf_ui(
+    ui: &mut egui::Ui,
+    tf_tree: &TFTree,
+    config: &mut TFPanelConfig,
+    publishers: &[&TFPublisher],
+    current_time: f32,
+) {
+    // Calculate stats
+    let mut stats = TFStats::new();
+    stats.update(&publishers.to_vec());
+
+    ui.heading("Transform Frames");
+    ui.separator();
+
+    // Statistics
+    ui.label(format!("Total Frames: {}", stats.total_frames));
+    ui.label(format!(
+        "World: {} | Robot: {} | Sensor: {} | Link: {}",
+        stats.world_frames, stats.robot_frames, stats.sensor_frames, stats.link_frames
+    ));
+
+    ui.add_space(10.0);
+
+    // Filter options
+    ui.heading("Filters");
+    ui.separator();
+    ui.checkbox(&mut config.show_world_frame, "World Frames");
+    ui.checkbox(&mut config.show_robot_frames, "Robot Frames");
+    ui.checkbox(&mut config.show_sensor_frames, "Sensor Frames");
+    ui.checkbox(&mut config.show_link_frames, "Link Frames");
+    ui.checkbox(&mut config.highlight_selected, "Highlight Selected");
+
+    ui.add_space(10.0);
+
+    // Frame tree
+    ui.heading("Frame Hierarchy");
+    ui.separator();
+
+    egui::ScrollArea::vertical()
+        .max_height(400.0)
+        .show(ui, |ui| {
+            // Group frames by type
+            let mut world_frames = Vec::new();
+            let mut robot_frames = Vec::new();
+            let mut sensor_frames = Vec::new();
+            let mut link_frames = Vec::new();
+            let mut other_frames = Vec::new();
+
+            for publisher in publishers {
+                let frame_name = &publisher.frame_name;
+                if frame_name.contains("world") || frame_name.contains("map") {
+                    world_frames.push(*publisher);
+                } else if frame_name.contains("base") || frame_name.contains("robot") {
+                    robot_frames.push(*publisher);
+                } else if frame_name.contains("sensor")
+                    || frame_name.contains("camera")
+                    || frame_name.contains("lidar")
+                {
+                    sensor_frames.push(*publisher);
+                } else if frame_name.contains("link") || frame_name.contains("joint") {
+                    link_frames.push(*publisher);
+                } else {
+                    other_frames.push(*publisher);
+                }
+            }
+
+            // Display world frames
+            if config.show_world_frame && !world_frames.is_empty() {
+                ui.collapsing("World Frames", |ui| {
+                    for publisher in world_frames {
+                        display_frame_item(ui, publisher, config, tf_tree, current_time);
+                    }
+                });
+            }
+
+            // Display robot frames
+            if config.show_robot_frames && !robot_frames.is_empty() {
+                ui.collapsing("Robot Frames", |ui| {
+                    for publisher in robot_frames {
+                        display_frame_item(ui, publisher, config, tf_tree, current_time);
+                    }
+                });
+            }
+
+            // Display sensor frames
+            if config.show_sensor_frames && !sensor_frames.is_empty() {
+                ui.collapsing("Sensor Frames", |ui| {
+                    for publisher in sensor_frames {
+                        display_frame_item(ui, publisher, config, tf_tree, current_time);
+                    }
+                });
+            }
+
+            // Display link frames
+            if config.show_link_frames && !link_frames.is_empty() {
+                ui.collapsing("Link Frames", |ui| {
+                    for publisher in link_frames {
+                        display_frame_item(ui, publisher, config, tf_tree, current_time);
+                    }
+                });
+            }
+
+            // Display other frames
+            if !other_frames.is_empty() {
+                ui.collapsing("Other Frames", |ui| {
+                    for publisher in other_frames {
+                        display_frame_item(ui, publisher, config, tf_tree, current_time);
+                    }
+                });
+            }
+        });
+
+    ui.add_space(10.0);
+
+    // Selected frame details
+    if let Some(selected) = &config.selected_frame.clone() {
+        ui.heading("Selected Frame");
+        ui.separator();
+
+        ui.label(format!("Frame: {}", selected));
+
+        // Try to get transform from TF tree
+        if let Ok(transform) = tf_tree.lookup_transform("world", &selected) {
+            ui.label(format!(
+                "Position: ({:.3}, {:.3}, {:.3})",
+                transform.translation.x, transform.translation.y, transform.translation.z
+            ));
+
+            let (roll, pitch, yaw) = transform.rotation.euler_angles();
+            ui.label(format!(
+                "Rotation: R:{:.2}° P:{:.2}° Y:{:.2}°",
+                roll.to_degrees(),
+                pitch.to_degrees(),
+                yaw.to_degrees()
+            ));
+        } else {
+            ui.label("Transform not available");
+        }
+
+        if ui.button("Clear Selection").clicked() {
+            config.clear_selection();
+        }
+    }
+}
+
+#[cfg(feature = "visual")]
+/// Main TF panel system - only shown when dock mode is disabled
 pub fn tf_panel_system(
     mut contexts: EguiContexts,
     tf_tree: Res<TFTree>,
     mut config: ResMut<TFPanelConfig>,
     publishers: Query<&TFPublisher>,
     time: Res<Time>,
-    #[cfg(feature = "editor")] dock_config: Option<Res<crate::ui::dock::DockConfig>>,
+    dock_config: Option<Res<DockConfig>>,
 ) {
     // Skip if dock mode is enabled (dock renders its own TF tree tab)
-    #[cfg(feature = "editor")]
     if let Some(dock) = dock_config {
         if dock.enabled {
             return;
@@ -119,178 +268,26 @@ pub fn tf_panel_system(
         return;
     }
 
+    // Safely get context
+    let Some(ctx) = contexts.try_ctx_mut() else {
+        return;
+    };
+
     // Collect all publishers
     let all_publishers: Vec<&TFPublisher> = publishers.iter().collect();
-    let mut stats = TFStats::new();
-    stats.update(&all_publishers);
 
     egui::Window::new("TF Tree")
         .default_width(320.0)
         .default_pos([10.0, 700.0])
         .resizable(true)
-        .show(contexts.ctx_mut(), |ui| {
-            ui.heading("Transform Frames");
-            ui.separator();
-
-            // Statistics
-            ui.label(format!("Total Frames: {}", stats.total_frames));
-            ui.label(format!(
-                "World: {} | Robot: {} | Sensor: {} | Link: {}",
-                stats.world_frames, stats.robot_frames, stats.sensor_frames, stats.link_frames
-            ));
-
-            ui.add_space(10.0);
-
-            // Filter options
-            ui.heading("Filters");
-            ui.separator();
-            ui.checkbox(&mut config.show_world_frame, "World Frames");
-            ui.checkbox(&mut config.show_robot_frames, "Robot Frames");
-            ui.checkbox(&mut config.show_sensor_frames, "Sensor Frames");
-            ui.checkbox(&mut config.show_link_frames, "Link Frames");
-            ui.checkbox(&mut config.highlight_selected, "Highlight Selected");
-
-            ui.add_space(10.0);
-
-            // Frame tree
-            ui.heading("Frame Hierarchy");
-            ui.separator();
-
-            egui::ScrollArea::vertical()
-                .max_height(400.0)
-                .show(ui, |ui| {
-                    // Group frames by type
-                    let mut world_frames = Vec::new();
-                    let mut robot_frames = Vec::new();
-                    let mut sensor_frames = Vec::new();
-                    let mut link_frames = Vec::new();
-                    let mut other_frames = Vec::new();
-
-                    for publisher in &all_publishers {
-                        let frame_name = &publisher.frame_name;
-                        if frame_name.contains("world") || frame_name.contains("map") {
-                            world_frames.push(publisher);
-                        } else if frame_name.contains("base") || frame_name.contains("robot") {
-                            robot_frames.push(publisher);
-                        } else if frame_name.contains("sensor")
-                            || frame_name.contains("camera")
-                            || frame_name.contains("lidar")
-                        {
-                            sensor_frames.push(publisher);
-                        } else if frame_name.contains("link") || frame_name.contains("joint") {
-                            link_frames.push(publisher);
-                        } else {
-                            other_frames.push(publisher);
-                        }
-                    }
-
-                    // Display world frames
-                    if config.show_world_frame && !world_frames.is_empty() {
-                        ui.collapsing("World Frames", |ui| {
-                            for publisher in world_frames {
-                                display_frame_item(
-                                    ui,
-                                    publisher,
-                                    &config,
-                                    &tf_tree,
-                                    time.elapsed_secs(),
-                                );
-                            }
-                        });
-                    }
-
-                    // Display robot frames
-                    if config.show_robot_frames && !robot_frames.is_empty() {
-                        ui.collapsing("Robot Frames", |ui| {
-                            for publisher in robot_frames {
-                                display_frame_item(
-                                    ui,
-                                    publisher,
-                                    &config,
-                                    &tf_tree,
-                                    time.elapsed_secs(),
-                                );
-                            }
-                        });
-                    }
-
-                    // Display sensor frames
-                    if config.show_sensor_frames && !sensor_frames.is_empty() {
-                        ui.collapsing("Sensor Frames", |ui| {
-                            for publisher in sensor_frames {
-                                display_frame_item(
-                                    ui,
-                                    publisher,
-                                    &config,
-                                    &tf_tree,
-                                    time.elapsed_secs(),
-                                );
-                            }
-                        });
-                    }
-
-                    // Display link frames
-                    if config.show_link_frames && !link_frames.is_empty() {
-                        ui.collapsing("Link Frames", |ui| {
-                            for publisher in link_frames {
-                                display_frame_item(
-                                    ui,
-                                    publisher,
-                                    &config,
-                                    &tf_tree,
-                                    time.elapsed_secs(),
-                                );
-                            }
-                        });
-                    }
-
-                    // Display other frames
-                    if !other_frames.is_empty() {
-                        ui.collapsing("Other Frames", |ui| {
-                            for publisher in other_frames {
-                                display_frame_item(
-                                    ui,
-                                    publisher,
-                                    &config,
-                                    &tf_tree,
-                                    time.elapsed_secs(),
-                                );
-                            }
-                        });
-                    }
-                });
-
-            ui.add_space(10.0);
-
-            // Selected frame details
-            if let Some(selected) = &config.selected_frame {
-                ui.heading("Selected Frame");
-                ui.separator();
-
-                ui.label(format!("Frame: {}", selected));
-
-                // Try to get transform from TF tree
-                if let Ok(transform) = tf_tree.lookup_transform("world", selected) {
-                    ui.label(format!(
-                        "Position: ({:.3}, {:.3}, {:.3})",
-                        transform.translation.x, transform.translation.y, transform.translation.z
-                    ));
-
-                    let (roll, pitch, yaw) = transform.rotation.euler_angles();
-                    ui.label(format!(
-                        "Rotation: R:{:.2}° P:{:.2}° Y:{:.2}°",
-                        roll.to_degrees(),
-                        pitch.to_degrees(),
-                        yaw.to_degrees()
-                    ));
-                } else {
-                    ui.label("Transform not available");
-                }
-
-                if ui.button("Clear Selection").clicked() {
-                    config.clear_selection();
-                }
-            }
+        .show(ctx, |ui| {
+            render_tf_ui(
+                ui,
+                &tf_tree,
+                &mut config,
+                &all_publishers,
+                time.elapsed_secs(),
+            );
         });
 }
 
@@ -393,13 +390,19 @@ impl Plugin for TFPanelPlugin {
             .add_event::<TFFrameSelectEvent>()
             .add_systems(
                 Update,
-                (
-                    tf_panel_system,
-                    tf_panel_keyboard_system,
-                    handle_tf_select_events,
-                )
-                    .chain(),
+                (tf_panel_keyboard_system, handle_tf_select_events).chain(),
             );
+
+        #[cfg(feature = "visual")]
+        {
+            use bevy_egui::EguiSet;
+            app.add_systems(Update, tf_panel_system.after(EguiSet::InitContexts));
+        }
+
+        #[cfg(not(feature = "visual"))]
+        {
+            app.add_systems(Update, tf_panel_system);
+        }
     }
 }
 

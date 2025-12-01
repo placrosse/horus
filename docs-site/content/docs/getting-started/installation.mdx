@@ -14,15 +14,15 @@ HORUS has **native cross-platform support**:
 
 | Platform | Status | Shared Memory Path | Notes |
 |----------|--------|-------------------|-------|
-| **Ubuntu 20.04+** | ✅ Native | `/dev/shm/horus/` | Recommended for production |
-| **Ubuntu 22.04+** | ✅ Native | `/dev/shm/horus/` | Best performance |
-| **Debian 11+** | ✅ Native | `/dev/shm/horus/` | Tested and working |
-| **Fedora 36+** | ✅ Native | `/dev/shm/horus/` | Use dnf for packages |
-| **Arch Linux** | ✅ Native | `/dev/shm/horus/` | Community maintained |
-| **Raspberry Pi** | ✅ Native | `/dev/shm/horus/` | ARM64 tested on Ubuntu |
-| **macOS** | ✅ Native | `/tmp/horus/` | tmpfs-backed, full support |
-| **Windows** | ✅ Native | `%TEMP%\horus\` | Native Windows support |
-| **WSL 2** | ✅ Native | `/dev/shm/horus/` | Linux mode in WSL |
+| **Ubuntu 20.04+** | Supported | `/dev/shm/horus/` | Recommended for production |
+| **Ubuntu 22.04+** | Supported | `/dev/shm/horus/` | Best performance |
+| **Debian 11+** | Supported | `/dev/shm/horus/` | Tested and working |
+| **Fedora 36+** | Supported | `/dev/shm/horus/` | Use dnf for packages |
+| **Arch Linux** | Supported | `/dev/shm/horus/` | Community maintained |
+| **Raspberry Pi** | Supported | `/dev/shm/horus/` | ARM64 tested on Ubuntu |
+| **macOS** | Supported | `/tmp/horus/` | tmpfs-backed, full support |
+| **Windows** | Supported | `%TEMP%\horus\` | Native Windows support |
+| **WSL 2** | Supported | `/dev/shm/horus/` | Linux mode in WSL |
 
 ## Prerequisites
 
@@ -688,42 +688,6 @@ See the **[Troubleshooting & Maintenance Guide](/troubleshooting)** for:
 - Verify script (`verify.sh`)
 - Platform-specific problems
 - 15+ solved issues with step-by-step solutions
-
-## Optional: Setup Trusted Certificates
-
-**For Dashboard Users (Recommended)**
-
-By default, the HORUS dashboard uses self-signed SSL certificates, which cause browser security warnings. You can eliminate these warnings with a one-time setup using mkcert:
-
-```bash
-# Install mkcert
-# Ubuntu/Debian:
-sudo apt install mkcert
-
-# macOS:
-brew install mkcert
-
-# Setup trusted certificates
-horus init --setup-certs
-```
-
-**What this does:**
-- [OK] Installs a local Certificate Authority on your device
-- [OK] Generates trusted certificates for localhost and your network IP
-- [OK] Eliminates browser security warnings
-- [OK] Works with all browsers (Chrome, Firefox, Safari, Edge)
-
-**After this setup:**
-- When you run `horus dashboard`, you'll see: **[OK] Trusted certificate detected - No browser warnings!**
-- You and your team can access the dashboard without accepting security warnings
-- Perfect for development and demonstrations
-
-**Skip this if:**
-- You don't plan to use the web dashboard
-- You're okay clicking through browser warnings
-- You prefer the terminal UI mode (`horus dashboard --tui`)
-
-**Learn more:** See the [Dashboard Guide](/dashboard#trusted-https-certificates) for details.
 
 ## Next Steps
 

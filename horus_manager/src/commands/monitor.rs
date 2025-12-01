@@ -213,17 +213,24 @@ fn discover_nodes_from_heartbeats() -> HorusResult<Vec<NodeStatus>> {
                             // Try to find PID for this node
                             let pid = find_node_pid(node_name).unwrap_or(0);
 
+                            // Get process info for CPU/memory if we have a valid PID
+                            let proc_info = if pid > 0 {
+                                get_process_info(pid).unwrap_or_default()
+                            } else {
+                                ProcessInfo::default()
+                            };
+
                             nodes.push(NodeStatus {
                                 name: node_name.to_string(),
                                 status: status_str.to_string(),
                                 health: heartbeat.health,
                                 priority: 0,
                                 process_id: pid,
-                                command_line: String::new(),
-                                working_dir: String::new(),
-                                cpu_usage: 0.0,
-                                memory_usage: 0,
-                                start_time: String::new(),
+                                command_line: proc_info.cmdline.clone(),
+                                working_dir: proc_info.working_dir.clone(),
+                                cpu_usage: proc_info.cpu_percent,
+                                memory_usage: proc_info.memory_kb,
+                                start_time: proc_info.start_time.clone(),
                                 scheduler_name: "Heartbeat".to_string(),
                                 category: ProcessCategory::Node,
                                 tick_count: heartbeat.tick_count,
@@ -465,9 +472,9 @@ fn discover_nodes_from_registry() -> anyhow::Result<Vec<NodeStatus>> {
                     process_id: scheduler_pid, // Use scheduler PID as approximation
                     command_line: proc_info.cmdline.clone(),
                     working_dir: working_dir.clone(),
-                    cpu_usage: 0.0,
-                    memory_usage: 0,
-                    start_time: String::new(),
+                    cpu_usage: proc_info.cpu_percent,
+                    memory_usage: proc_info.memory_kb,
+                    start_time: proc_info.start_time.clone(),
                     tick_count: 0,
                     error_count: 0,
                     actual_rate_hz: rate_hz,
@@ -1623,10 +1630,78 @@ fn discover_shared_memory_uncached() -> HorusResult<Vec<SharedMemoryInfo>> {
     // Also scan global/legacy path for backward compatibility
     let global_shm_path = shm_topics_dir();
     if global_shm_path.exists() {
+        // Auto-cleanup stale topics in global directory (not session-managed)
+        // Topics are stale if: no process has them open AND not modified in 5+ minutes
+        cleanup_stale_global_topics(&global_shm_path);
         topics.extend(scan_topics_directory(&global_shm_path)?);
     }
 
     Ok(topics)
+}
+
+/// Clean up stale topic files from the global topics directory
+/// A topic is stale if no process has it mmap'd AND it hasn't been modified in 5+ minutes
+fn cleanup_stale_global_topics(shm_path: &Path) {
+    const STALE_THRESHOLD_SECS: u64 = 300; // 5 minutes
+
+    if let Ok(entries) = std::fs::read_dir(shm_path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+
+            let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
+
+            // Check if any process has this file mmap'd
+            let accessing_procs = find_accessing_processes_fast(&path, name);
+            let has_live_processes = accessing_procs.iter().any(|pid| process_exists(*pid));
+
+            if has_live_processes {
+                continue; // Topic is in use
+            }
+
+            // Check modification time
+            if let Ok(metadata) = entry.metadata() {
+                if let Ok(modified) = metadata.modified() {
+                    if let Ok(elapsed) = modified.elapsed() {
+                        if elapsed.as_secs() > STALE_THRESHOLD_SECS {
+                            // Topic is stale - remove it
+                            let _ = std::fs::remove_file(&path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Get list of active node names from heartbeat files
+/// Used as fallback when registry.json doesn't exist
+fn get_active_heartbeat_nodes() -> Vec<String> {
+    let mut nodes = Vec::new();
+    let heartbeats_dir = shm_heartbeats_dir();
+
+    if let Ok(entries) = std::fs::read_dir(&heartbeats_dir) {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                // Check if node is recently active (heartbeat within last 30 seconds)
+                if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                    if let Ok(heartbeat) = serde_json::from_str::<serde_json::Value>(&content) {
+                        // Check if running state
+                        let state = heartbeat["state"].as_str().unwrap_or("");
+                        if state == "Running" {
+                            nodes.push(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    nodes
 }
 
 /// Scan a specific topics directory for shared memory files
@@ -1636,6 +1711,9 @@ fn scan_topics_directory(shm_path: &Path) -> HorusResult<Vec<SharedMemoryInfo>> 
     // Load registry to get topic metadata
     let registry_topics = load_topic_metadata_from_registry();
 
+    // Fallback: get active node names from heartbeats for pub/sub inference
+    let active_nodes = get_active_heartbeat_nodes();
+
     for entry in std::fs::read_dir(shm_path)? {
         let entry = entry?;
         let path = entry.path();
@@ -1643,67 +1721,124 @@ fn scan_topics_directory(shm_path: &Path) -> HorusResult<Vec<SharedMemoryInfo>> 
 
         // Smart filter for shared memory segments
         if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
-            // Only include files (not directories)
             if metadata.is_file() {
-                let size = metadata.len();
-                let modified = metadata.modified().ok();
-
-                // Find processes accessing this segment (optimized)
-                let accessing_procs = find_accessing_processes_fast(&path, name);
-
-                // All files in HORUS directory are valid topics
-                // Extract topic name from filename (remove "horus_" prefix)
-                // Topic names use dot notation (e.g., "motors.cmd_vel") - no conversion needed
-                let topic_name = if name.starts_with("horus_") {
-                    name.strip_prefix("horus_").unwrap_or(name).to_string()
-                } else {
-                    name.to_string()
-                };
-
-                let is_recent = if let Some(mod_time) = modified {
-                    // Use 30 second threshold to handle slow publishers (e.g., 0.1 Hz = 10 sec between publishes)
-                    mod_time.elapsed().unwrap_or(Duration::from_secs(3600))
-                        < Duration::from_secs(30)
-                } else {
-                    false
-                };
-
-                let has_valid_processes = accessing_procs.iter().any(|pid| process_exists(*pid));
-
-                // Include all topics in HORUS directory
-                // Topics persist for the lifetime of the session - cleanup happens when
-                // the session ends (via Scheduler::cleanup_session), not based on time
-                let active = has_valid_processes || is_recent;
-
-                // Calculate message rate from modification times
-                let message_rate = calculate_topic_rate(&topic_name, modified);
-
-                // Get metadata from registry
-                let (message_type, publishers, subscribers) = registry_topics
-                    .get(&topic_name)
-                    .map(|(t, p, s)| (Some(t.clone()), p.clone(), s.clone()))
-                    .unwrap_or((None, Vec::new(), Vec::new()));
-
-                topics.push(SharedMemoryInfo {
-                    topic_name,
-                    size_bytes: size,
-                    active,
-                    accessing_processes: accessing_procs
-                        .iter()
-                        .filter(|pid| process_exists(**pid))
-                        .copied()
-                        .collect(),
-                    last_modified: modified,
-                    message_type,
-                    publishers,
-                    subscribers,
-                    message_rate_hz: message_rate,
-                });
+                // Hub topics - files directly in topics directory
+                if let Some(info) = scan_topic_file(&path, name, &registry_topics, &active_nodes) {
+                    topics.push(info);
+                }
+            } else if metadata.is_dir() && name == "horus_links" {
+                // Link topics - files inside horus_links subdirectory
+                topics.extend(scan_links_directory(
+                    &path,
+                    &registry_topics,
+                    &active_nodes,
+                )?);
             }
         }
     }
 
     Ok(topics)
+}
+
+/// Scan the horus_links directory for Link shared memory files
+fn scan_links_directory(
+    links_path: &Path,
+    registry_topics: &StdHashMap<String, (String, Vec<String>, Vec<String>)>,
+    active_nodes: &[String],
+) -> HorusResult<Vec<SharedMemoryInfo>> {
+    let mut topics = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir(links_path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Ok(metadata) = entry.metadata() {
+                if metadata.is_file() {
+                    if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+                        // Link topic name format: links/<topic>
+                        let topic_name = format!("links/{}", name);
+                        if let Some(mut info) =
+                            scan_topic_file(&path, name, registry_topics, active_nodes)
+                        {
+                            info.topic_name = topic_name;
+                            topics.push(info);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(topics)
+}
+
+/// Scan a single topic file and create SharedMemoryInfo
+fn scan_topic_file(
+    path: &Path,
+    name: &str,
+    registry_topics: &StdHashMap<String, (String, Vec<String>, Vec<String>)>,
+    active_nodes: &[String],
+) -> Option<SharedMemoryInfo> {
+    let metadata = std::fs::metadata(path).ok()?;
+    let size = metadata.len();
+    let modified = metadata.modified().ok();
+
+    // Find processes accessing this segment (optimized)
+    let accessing_procs = find_accessing_processes_fast(path, name);
+
+    // All files in HORUS directory are valid topics
+    // Extract topic name from filename (remove "horus_" prefix)
+    // Topic names use dot notation (e.g., "motors.cmd_vel") - no conversion needed
+    let topic_name = if name.starts_with("horus_") {
+        name.strip_prefix("horus_").unwrap_or(name).to_string()
+    } else {
+        name.to_string()
+    };
+
+    let is_recent = if let Some(mod_time) = modified {
+        // Use 30 second threshold to handle slow publishers (e.g., 0.1 Hz = 10 sec between publishes)
+        mod_time.elapsed().unwrap_or(Duration::from_secs(3600)) < Duration::from_secs(30)
+    } else {
+        false
+    };
+
+    let has_valid_processes = accessing_procs.iter().any(|pid| process_exists(*pid));
+
+    // Include all topics in HORUS directory
+    // Topics persist for the lifetime of the session - cleanup happens when
+    // the session ends (via Scheduler::cleanup_session), not based on time
+    let active = has_valid_processes || is_recent;
+
+    // Calculate message rate from modification times
+    let message_rate = calculate_topic_rate(&topic_name, modified);
+
+    // Get metadata from registry
+    let (message_type, mut publishers, subscribers) = registry_topics
+        .get(&topic_name)
+        .map(|(t, p, s)| (Some(t.clone()), p.clone(), s.clone()))
+        .unwrap_or((None, Vec::new(), Vec::new()));
+
+    // Fallback: if no registry info and topic is active, infer from active nodes
+    if publishers.is_empty() && active && !active_nodes.is_empty() {
+        // Assume all active nodes are potential publishers for active topics
+        // This provides visibility when registry.json is not available
+        publishers = active_nodes.to_vec();
+    }
+
+    Some(SharedMemoryInfo {
+        topic_name,
+        size_bytes: size,
+        active,
+        accessing_processes: accessing_procs
+            .iter()
+            .filter(|pid| process_exists(**pid))
+            .copied()
+            .collect(),
+        last_modified: modified,
+        message_type,
+        publishers,
+        subscribers,
+        message_rate_hz: message_rate,
+    })
 }
 
 fn calculate_topic_rate(topic_name: &str, modified: Option<std::time::SystemTime>) -> f32 {
@@ -1796,9 +1931,10 @@ fn load_topic_metadata_from_registry() -> StdHashMap<String, (String, Vec<String
     topic_map
 }
 
-// Fast version: Only check HORUS processes first, then fall back to full scan if needed
+// Fast version: Check memory maps for HORUS processes to find mmap'd shared memory
 fn find_accessing_processes_fast(shm_path: &Path, shm_name: &str) -> Vec<u32> {
     let mut processes = Vec::new();
+    let shm_path_str = shm_path.to_string_lossy();
 
     // For HORUS-like shared memory, only check HORUS processes first (much faster)
     let is_horus_shm = shm_name.contains("horus")
@@ -1815,8 +1951,20 @@ fn find_accessing_processes_fast(shm_path: &Path, shm_name: &str) -> Vec<u32> {
                         // Quick check if this is a HORUS-related process
                         if let Ok(cmdline) = std::fs::read_to_string(entry.path().join("cmdline")) {
                             let cmdline_str = cmdline.replace('\0', " ");
-                            if cmdline_str.contains("horus") || cmdline_str.contains("ros") {
-                                // Only now check file descriptors for this process
+                            if cmdline_str.contains("horus")
+                                || cmdline_str.contains("ros")
+                                || cmdline_str.contains("sim")
+                                || cmdline_str.contains("snake")
+                            {
+                                // Check memory maps for this process (mmap'd files show up here)
+                                let maps_path = entry.path().join("maps");
+                                if let Ok(maps_content) = std::fs::read_to_string(&maps_path) {
+                                    if maps_content.contains(&*shm_path_str) {
+                                        processes.push(pid);
+                                        continue;
+                                    }
+                                }
+                                // Also check file descriptors as fallback
                                 let fd_path = entry.path().join("fd");
                                 if let Ok(fd_entries) = std::fs::read_dir(fd_path) {
                                     for fd_entry in fd_entries.flatten() {
@@ -1842,16 +1990,23 @@ fn find_accessing_processes_fast(shm_path: &Path, shm_name: &str) -> Vec<u32> {
         }
     }
 
-    // Fallback: Abbreviated scan - only check first 20 processes to avoid blocking
+    // Fallback: Abbreviated scan - only check first 50 processes to avoid blocking
     if let Ok(proc_entries) = std::fs::read_dir("/proc") {
-        for (_checked, entry) in proc_entries.flatten().enumerate().take(20) {
-            // Limit to avoid UI blocking
-
+        for (_checked, entry) in proc_entries.flatten().enumerate().take(50) {
             if let Some(pid) = entry
                 .file_name()
                 .to_str()
                 .and_then(|s| s.parse::<u32>().ok())
             {
+                // Check memory maps first (mmap'd files)
+                let maps_path = entry.path().join("maps");
+                if let Ok(maps_content) = std::fs::read_to_string(&maps_path) {
+                    if maps_content.contains(&*shm_path_str) {
+                        processes.push(pid);
+                        continue;
+                    }
+                }
+                // Fallback to file descriptors
                 let fd_path = entry.path().join("fd");
                 if let Ok(fd_entries) = std::fs::read_dir(fd_path) {
                     for fd_entry in fd_entries.flatten() {
@@ -2549,7 +2704,7 @@ mod tests {
         };
 
         match node_healthy.health {
-            HealthStatus::Healthy => assert!(true),
+            HealthStatus::Healthy => {}
             _ => panic!("Expected Healthy"),
         }
     }

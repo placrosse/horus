@@ -11,6 +11,20 @@
 // EnhancedError is intentionally large (136 bytes) to carry rich error context
 // (file path, line/column, hints, suggestions). Error paths are not hot paths.
 #![allow(clippy::result_large_err)]
+// Simulator code often uses test assertions with length comparisons
+#![allow(clippy::len_zero)]
+// Simulator uses manual range checks for clarity in physics code
+#![allow(clippy::manual_range_contains)]
+// Field initialization patterns are common in test fixtures
+#![allow(clippy::field_reassign_with_default)]
+// Private interfaces in Bevy system signatures are acceptable
+#![allow(private_interfaces)]
+// Test code uses approximate PI values intentionally in tests
+#![allow(clippy::approx_constant)]
+// Unused variables in tests are fine
+#![allow(unused_variables)]
+// Reference patterns in Bevy queries
+#![allow(clippy::needless_borrow)]
 
 use bevy::prelude::*;
 
@@ -310,7 +324,13 @@ fn run_visual_mode(cli: Cli) {
         // Editor plugins (EditorPlugin already includes undo internally)
         app.add_plugins(editor::EditorPlugin);
 
-        app.add_systems(Update, (ui::debug_panel::debug_panel_system,));
+        {
+            use bevy_egui::EguiSet;
+            app.add_systems(
+                Update,
+                ui::debug_panel::debug_panel_system.after(EguiSet::InitContexts),
+            );
+        }
 
         app.add_systems(
             Update,

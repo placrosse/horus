@@ -761,17 +761,33 @@ pub fn handle_layout_events(
 }
 
 #[cfg(feature = "visual")]
-/// UI panel for layout management
+use crate::ui::dock::DockConfig;
+
+#[cfg(feature = "visual")]
+/// UI panel for layout management - only shown when dock mode is disabled
 pub fn layout_panel_system(
     mut contexts: EguiContexts,
     mut manager: ResMut<LayoutManager>,
     mut events: EventWriter<LayoutEvent>,
     mut save_name: Local<String>,
+    dock_config: Option<Res<DockConfig>>,
 ) {
+    // Skip if dock mode is enabled (dock provides unified UI)
+    if let Some(config) = dock_config {
+        if config.enabled {
+            return;
+        }
+    }
+
+    // Safely get context, return early if not initialized
+    let Some(ctx) = contexts.try_ctx_mut() else {
+        return;
+    };
+
     egui::Window::new("Layouts")
         .default_pos([10.0, 500.0])
         .default_width(250.0)
-        .show(contexts.ctx_mut(), |ui| {
+        .show(ctx, |ui| {
             ui.heading("Layout Presets");
             ui.separator();
 
@@ -861,7 +877,10 @@ impl Plugin for LayoutPlugin {
             .add_systems(Update, (layout_hotkey_system, handle_layout_events).chain());
 
         #[cfg(feature = "visual")]
-        app.add_systems(Update, layout_panel_system);
+        {
+            use bevy_egui::EguiSet;
+            app.add_systems(Update, layout_panel_system.after(EguiSet::InitContexts));
+        }
     }
 }
 

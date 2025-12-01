@@ -107,23 +107,134 @@ pub fn collect_stats_system(
 }
 
 #[cfg(feature = "visual")]
-/// Main stats panel system
+use crate::ui::dock::DockConfig;
+
+#[cfg(feature = "visual")]
+/// Render the stats UI content (reusable in both floating window and dock tab)
+pub fn render_stats_ui(
+    ui: &mut egui::Ui,
+    time: &Time,
+    stats: &SimulationStats,
+    frame_time: &FrameTimeBreakdown,
+    horus_stats: Option<&HorusSyncStats>,
+) {
+    ui.heading("Performance");
+    ui.separator();
+
+    // FPS and frame time
+    let fps = if time.delta_secs() > 0.0 {
+        1.0 / time.delta_secs()
+    } else {
+        0.0
+    };
+
+    ui.horizontal(|ui| {
+        ui.label("FPS:");
+        ui.label(format!("{:.1}", fps));
+
+        // Color code FPS
+        if fps >= 60.0 {
+            ui.colored_label(egui::Color32::GREEN, "[OK]");
+        } else if fps >= 30.0 {
+            ui.colored_label(egui::Color32::YELLOW, "[WARNING]");
+        } else {
+            ui.colored_label(egui::Color32::RED, "[SLOW]");
+        }
+    });
+
+    ui.label(format!("Frame Time: {:.2}ms", time.delta_secs() * 1000.0));
+
+    ui.add_space(5.0);
+    ui.label("Frame Time Breakdown:");
+    ui.indent("frame_breakdown", |ui| {
+        ui.label(format!("  Physics: {:.2}ms", frame_time.physics_time_ms));
+        ui.label(format!("  Sensors: {:.2}ms", frame_time.sensor_time_ms));
+        ui.label(format!(
+            "  Rendering: {:.2}ms",
+            frame_time.rendering_time_ms
+        ));
+    });
+
+    ui.add_space(10.0);
+    ui.heading("Entities");
+    ui.separator();
+
+    ui.label(format!("Total Entities: {}", stats.total_entities));
+    ui.label(format!("Robots: {}", stats.robot_count));
+    ui.label(format!("Sensors: {}", stats.sensor_count));
+    ui.label(format!("Obstacles: {}", stats.obstacle_count));
+
+    ui.add_space(10.0);
+    ui.heading("Physics");
+    ui.separator();
+
+    ui.label(format!("Rigid Bodies: {}", stats.rigid_body_count));
+    ui.label(format!("Colliders: {}", stats.collider_count));
+    ui.label(format!("Joints: {}", stats.joint_count));
+    ui.label(format!("Active Contacts: {}", stats.contact_count));
+
+    ui.add_space(10.0);
+    ui.heading("Simulation");
+    ui.separator();
+
+    ui.label(format!("Sim Time: {:.2}s", stats.simulation_time));
+    ui.label(format!("Real Time: {:.2}s", stats.real_time));
+
+    let time_ratio = stats.time_ratio();
+    ui.horizontal(|ui| {
+        ui.label("Time Ratio:");
+        let ratio_text = format!("{:.2}x", time_ratio);
+        if time_ratio >= 0.95 {
+            ui.colored_label(egui::Color32::GREEN, ratio_text);
+        } else if time_ratio >= 0.5 {
+            ui.colored_label(egui::Color32::YELLOW, ratio_text);
+        } else {
+            ui.colored_label(egui::Color32::RED, ratio_text);
+        }
+    });
+
+    ui.add_space(10.0);
+    ui.heading("Memory");
+    ui.separator();
+
+    ui.label(format!("Est. Usage: {:.2} MB", stats.estimated_memory_mb()));
+
+    // HORUS sync statistics
+    if let Some(horus) = horus_stats {
+        ui.add_space(10.0);
+        ui.heading("HORUS Sync");
+        ui.separator();
+
+        ui.label(format!("Published: {}", horus.messages_published));
+        ui.label(format!("Received: {}", horus.messages_received));
+        ui.label(format!("Errors: {}", horus.publish_errors));
+        ui.label(format!("Last Pub: {:.2}s", horus.last_publish_time));
+        ui.label(format!("Last Recv: {:.2}s", horus.last_receive_time));
+    }
+}
+
+#[cfg(feature = "visual")]
+/// Main stats panel system - only shown when dock mode is disabled
 pub fn stats_panel_system(
     mut contexts: EguiContexts,
     time: Res<Time>,
     stats: Res<SimulationStats>,
     frame_time: Res<FrameTimeBreakdown>,
     horus_stats: Option<Res<HorusSyncStats>>,
-    #[cfg(feature = "editor")] dock_config: Option<Res<crate::ui::dock::DockConfig>>,
+    dock_config: Option<Res<DockConfig>>,
     mut show_panel: Local<bool>,
 ) {
     // Skip if dock mode is enabled (dock renders its own stats tab)
-    #[cfg(feature = "editor")]
     if let Some(dock) = dock_config {
         if dock.enabled {
             return;
         }
     }
+
+    // Safely get context, return early if not initialized
+    let Some(ctx) = contexts.try_ctx_mut() else {
+        return;
+    };
 
     // Toggle with 'S' key (handled elsewhere)
     if !*show_panel {
@@ -133,100 +244,8 @@ pub fn stats_panel_system(
     egui::Window::new("Statistics")
         .default_width(320.0)
         .default_pos([10.0, 100.0])
-        .show(contexts.ctx_mut(), |ui| {
-            ui.heading("Performance");
-            ui.separator();
-
-            // FPS and frame time
-            let fps = if time.delta_secs() > 0.0 {
-                1.0 / time.delta_secs()
-            } else {
-                0.0
-            };
-
-            ui.horizontal(|ui| {
-                ui.label("FPS:");
-                ui.label(format!("{:.1}", fps));
-
-                // Color code FPS
-                if fps >= 60.0 {
-                    ui.colored_label(egui::Color32::GREEN, "[OK]");
-                } else if fps >= 30.0 {
-                    ui.colored_label(egui::Color32::YELLOW, "[WARNING]");
-                } else {
-                    ui.colored_label(egui::Color32::RED, "[FAIL]");
-                }
-            });
-
-            ui.label(format!("Frame Time: {:.2}ms", time.delta_secs() * 1000.0));
-
-            ui.add_space(5.0);
-            ui.label("Frame Time Breakdown:");
-            ui.indent("frame_breakdown", |ui| {
-                ui.label(format!("  Physics: {:.2}ms", frame_time.physics_time_ms));
-                ui.label(format!("  Sensors: {:.2}ms", frame_time.sensor_time_ms));
-                ui.label(format!(
-                    "  Rendering: {:.2}ms",
-                    frame_time.rendering_time_ms
-                ));
-            });
-
-            ui.add_space(10.0);
-            ui.heading("Entities");
-            ui.separator();
-
-            ui.label(format!("Total Entities: {}", stats.total_entities));
-            ui.label(format!("Robots: {}", stats.robot_count));
-            ui.label(format!("Sensors: {}", stats.sensor_count));
-            ui.label(format!("Obstacles: {}", stats.obstacle_count));
-
-            ui.add_space(10.0);
-            ui.heading("Physics");
-            ui.separator();
-
-            ui.label(format!("Rigid Bodies: {}", stats.rigid_body_count));
-            ui.label(format!("Colliders: {}", stats.collider_count));
-            ui.label(format!("Joints: {}", stats.joint_count));
-            ui.label(format!("Active Contacts: {}", stats.contact_count));
-
-            ui.add_space(10.0);
-            ui.heading("Simulation");
-            ui.separator();
-
-            ui.label(format!("Sim Time: {:.2}s", stats.simulation_time));
-            ui.label(format!("Real Time: {:.2}s", stats.real_time));
-
-            let time_ratio = stats.time_ratio();
-            ui.horizontal(|ui| {
-                ui.label("Time Ratio:");
-                let ratio_text = format!("{:.2}x", time_ratio);
-                if time_ratio >= 0.95 {
-                    ui.colored_label(egui::Color32::GREEN, ratio_text);
-                } else if time_ratio >= 0.5 {
-                    ui.colored_label(egui::Color32::YELLOW, ratio_text);
-                } else {
-                    ui.colored_label(egui::Color32::RED, ratio_text);
-                }
-            });
-
-            ui.add_space(10.0);
-            ui.heading("Memory");
-            ui.separator();
-
-            ui.label(format!("Est. Usage: {:.2} MB", stats.estimated_memory_mb()));
-
-            // HORUS sync statistics
-            if let Some(horus) = horus_stats {
-                ui.add_space(10.0);
-                ui.heading("HORUS Sync");
-                ui.separator();
-
-                ui.label(format!("Published: {}", horus.messages_published));
-                ui.label(format!("Received: {}", horus.messages_received));
-                ui.label(format!("Errors: {}", horus.publish_errors));
-                ui.label(format!("Last Pub: {:.2}s", horus.last_publish_time));
-                ui.label(format!("Last Recv: {:.2}s", horus.last_receive_time));
-            }
+        .show(ctx, |ui| {
+            render_stats_ui(ui, &time, &stats, &frame_time, horus_stats.as_deref());
         });
 }
 
@@ -243,7 +262,23 @@ impl Plugin for StatsPanelPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SimulationStats>()
             .init_resource::<FrameTimeBreakdown>()
-            .add_systems(Update, (collect_stats_system, stats_panel_system).chain());
+            .add_systems(Update, collect_stats_system);
+
+        #[cfg(feature = "visual")]
+        {
+            use bevy_egui::EguiSet;
+            app.add_systems(
+                Update,
+                stats_panel_system
+                    .after(collect_stats_system)
+                    .after(EguiSet::InitContexts),
+            );
+        }
+
+        #[cfg(not(feature = "visual"))]
+        {
+            app.add_systems(Update, stats_panel_system.after(collect_stats_system));
+        }
     }
 }
 

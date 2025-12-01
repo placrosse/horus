@@ -17,7 +17,6 @@ use ratatui::{
 };
 use std::io::stdout;
 use std::time::{Duration, Instant};
-use tui_nodes::{Connection, LineType, NodeGraph, NodeLayout};
 
 // Import the monitoring structs and functions
 #[derive(Debug, Clone)]
@@ -71,14 +70,6 @@ pub struct TuiDashboard {
     workspace_cache: Vec<WorkspaceData>,
     workspace_cache_time: Instant,
     current_workspace_path: Option<std::path::PathBuf>,
-
-    // Graph view state
-    graph_nodes: Vec<TuiGraphNode>,
-    graph_edges: Vec<TuiGraphEdge>,
-    graph_layout: GraphLayout,
-    graph_zoom: f32,
-    graph_offset_x: i32,
-    graph_offset_y: i32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -155,52 +146,11 @@ struct TopicInfo {
     subscriber_nodes: Vec<String>,
 }
 
-// Graph data structures for TUI
-#[derive(Debug, Clone)]
-#[allow(dead_code)] // Fields for future graph visualization
-struct TuiGraphNode {
-    id: String,
-    label: String,
-    node_type: TuiNodeType,
-    x: i32, // TUI coordinates (character cells)
-    y: i32,
-    pid: Option<u32>,
-    active: bool,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum TuiNodeType {
-    Process,
-    Topic,
-}
-
-#[derive(Debug, Clone)]
-struct TuiGraphEdge {
-    from: String,
-    to: String,
-    edge_type: TuiEdgeType,
-    active: bool,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum TuiEdgeType {
-    Publish,   // Process publishes to topic
-    Subscribe, // Process subscribes from topic
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum GraphLayout {
-    Hierarchical,  // Processes on left, topics on right
-    Vertical,      // Processes on top, topics on bottom
-    ForceDirected, // Automatic physics-based layout
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Overview,
     Nodes,
     Topics,
-    Graph,
     Network,
     Packages,
     Parameters,
@@ -218,7 +168,6 @@ impl Tab {
             Tab::Overview => "Overview",
             Tab::Nodes => "Nodes",
             Tab::Topics => "Topics",
-            Tab::Graph => "Graph",
             Tab::Network => "Network",
             Tab::Packages => "Packages",
             Tab::Parameters => "Params",
@@ -230,7 +179,6 @@ impl Tab {
             Tab::Overview,
             Tab::Nodes,
             Tab::Topics,
-            Tab::Graph,
             Tab::Network,
             Tab::Packages,
             Tab::Parameters,
@@ -287,13 +235,6 @@ impl TuiDashboard {
             workspace_cache: Vec::new(),
             workspace_cache_time: Instant::now() - Duration::from_secs(10), // Force initial load
             current_workspace_path,
-
-            graph_nodes: Vec::new(),
-            graph_edges: Vec::new(),
-            graph_layout: GraphLayout::Hierarchical,
-            graph_zoom: 1.0,
-            graph_offset_x: 0,
-            graph_offset_y: 0,
         }
     }
 
@@ -403,10 +344,7 @@ impl TuiDashboard {
 
                         // Up/Down keys with different behavior based on Shift
                         KeyCode::Up => {
-                            if self.active_tab == Tab::Graph && !self.show_log_panel {
-                                // Pan up in graph view
-                                self.graph_offset_y += 2;
-                            } else if shift_pressed && self.show_log_panel {
+                            if shift_pressed && self.show_log_panel {
                                 // Shift+Up: Navigate to previous node/topic and update log panel
                                 self.select_prev();
                                 self.update_log_panel_target();
@@ -420,10 +358,7 @@ impl TuiDashboard {
                             }
                         }
                         KeyCode::Down => {
-                            if self.active_tab == Tab::Graph && !self.show_log_panel {
-                                // Pan down in graph view
-                                self.graph_offset_y -= 2;
-                            } else if shift_pressed && self.show_log_panel {
+                            if shift_pressed && self.show_log_panel {
                                 // Shift+Down: Navigate to next node/topic and update log panel
                                 self.select_next();
                                 self.update_log_panel_target();
@@ -495,39 +430,6 @@ impl TuiDashboard {
                         {
                             // Delete selected parameter (with confirmation)
                             self.start_delete_parameter();
-                        }
-
-                        // Graph operations (only in Graph tab)
-                        KeyCode::Char('l') | KeyCode::Char('L')
-                            if self.active_tab == Tab::Graph =>
-                        {
-                            // Toggle layout (cycles through all options)
-                            self.graph_layout = match self.graph_layout {
-                                GraphLayout::Hierarchical => GraphLayout::Vertical,
-                                GraphLayout::Vertical => GraphLayout::ForceDirected,
-                                GraphLayout::ForceDirected => GraphLayout::Hierarchical,
-                            };
-                            self.apply_graph_layout();
-                        }
-                        KeyCode::Char('+') | KeyCode::Char('=')
-                            if self.active_tab == Tab::Graph =>
-                        {
-                            // Zoom in
-                            self.graph_zoom = (self.graph_zoom * 1.2).min(5.0);
-                        }
-                        KeyCode::Char('-') | KeyCode::Char('_')
-                            if self.active_tab == Tab::Graph =>
-                        {
-                            // Zoom out
-                            self.graph_zoom = (self.graph_zoom / 1.2).max(0.2);
-                        }
-                        KeyCode::Left if self.active_tab == Tab::Graph && !self.show_log_panel => {
-                            // Pan left
-                            self.graph_offset_x += 5;
-                        }
-                        KeyCode::Right if self.active_tab == Tab::Graph && !self.show_log_panel => {
-                            // Pan right
-                            self.graph_offset_x -= 5;
                         }
 
                         // Switch between Nodes/Topics panels in Overview tab
@@ -665,7 +567,6 @@ impl TuiDashboard {
                     Tab::Overview => self.draw_overview(f, horizontal_chunks[0]),
                     Tab::Nodes => self.draw_nodes_simple(f, horizontal_chunks[0]),
                     Tab::Topics => self.draw_topics_simple(f, horizontal_chunks[0]),
-                    Tab::Graph => self.draw_graph(f, horizontal_chunks[0]),
                     Tab::Network => self.draw_network(f, horizontal_chunks[0]),
                     Tab::Packages => self.draw_packages(f, horizontal_chunks[0]),
                     Tab::Parameters => self.draw_parameters(f, horizontal_chunks[0]),
@@ -683,7 +584,6 @@ impl TuiDashboard {
                     Tab::Overview => self.draw_overview(f, content_area),
                     Tab::Nodes => self.draw_nodes(f, content_area),
                     Tab::Topics => self.draw_topics(f, content_area),
-                    Tab::Graph => self.draw_graph(f, content_area),
                     Tab::Network => self.draw_network(f, content_area),
                     Tab::Packages => self.draw_packages(f, content_area),
                     Tab::Parameters => self.draw_parameters(f, content_area),
@@ -1059,265 +959,6 @@ impl TuiDashboard {
         }
 
         f.render_stateful_widget(table, area, &mut table_state);
-    }
-
-    fn draw_graph(&mut self, f: &mut Frame, area: Rect) {
-        use ratatui::widgets::StatefulWidget;
-        use std::collections::HashMap;
-
-        // Create a block for the graph
-        // Legend: Blue = Publish (→), Magenta = Subscribe (←)
-        let block = Block::default()
-            .title(format!(
-                "Graph - {} nodes, {} edges | Pub=Blue Sub=Magenta",
-                self.graph_nodes.len(),
-                self.graph_edges.len()
-            ))
-            .borders(Borders::ALL);
-
-        let inner = block.inner(area);
-        f.render_widget(block, area);
-
-        if self.graph_nodes.is_empty() {
-            // Show message if no graph data
-            let text = Paragraph::new(
-                "No nodes or topics detected. Start some HORUS nodes to see the graph.",
-            )
-            .style(Style::default().fg(Color::Yellow))
-            .alignment(Alignment::Center);
-            f.render_widget(text, inner);
-            return;
-        }
-
-        // Build tui-nodes structures
-        // We need to map our internal node IDs to indices for tui-nodes
-        let mut id_to_index: HashMap<String, usize> = HashMap::new();
-
-        // Separate processes and topics for layout
-        let mut processes: Vec<&TuiGraphNode> = Vec::new();
-        let mut topics: Vec<&TuiGraphNode> = Vec::new();
-
-        for node in &self.graph_nodes {
-            match node.node_type {
-                TuiNodeType::Process => processes.push(node),
-                TuiNodeType::Topic => topics.push(node),
-            }
-        }
-
-        // Safety limits to prevent tui-nodes from panicking
-        // tui-nodes has bugs with coordinate calculations for large graphs
-        const MAX_NODES: usize = 10;
-        const MAX_EDGES: usize = 15;
-        let total_nodes = processes.len() + topics.len();
-        let total_edges = self.graph_edges.len();
-
-        if total_nodes > MAX_NODES || total_edges > MAX_EDGES {
-            // Show a simplified text-based view for large graphs
-            let node_list = processes
-                .iter()
-                .map(|n| format!("  [P] {}", n.label))
-                .chain(topics.iter().map(|n| format!("  [T] {}", n.label)))
-                .collect::<Vec<_>>()
-                .join("\n");
-
-            // Build edge list showing pub/sub relationships
-            let edge_list: String = self
-                .graph_edges
-                .iter()
-                .take(10) // Limit to first 10 edges to fit screen
-                .map(|e| {
-                    let arrow = match e.edge_type {
-                        TuiEdgeType::Publish => "->",   // Process publishes to Topic
-                        TuiEdgeType::Subscribe => "<-", // Process subscribes from Topic
-                    };
-                    format!("  {} {} {}", e.from, arrow, e.to)
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-
-            let edge_suffix = if self.graph_edges.len() > 10 {
-                format!("\n  ... and {} more", self.graph_edges.len() - 10)
-            } else {
-                String::new()
-            };
-
-            let text = Paragraph::new(format!(
-                "Graph too complex for TUI ({} nodes, {} edges). Limits: {}/{}\n\
-                 Use web dashboard for full view.\n\n\
-                 Nodes: [P]=Process [T]=Topic\n{}\n\n\
-                 Edges: -> Pub, <- Sub\n{}{}",
-                total_nodes, total_edges, MAX_NODES, MAX_EDGES, node_list, edge_list, edge_suffix
-            ))
-            .style(Style::default().fg(Color::Yellow))
-            .alignment(Alignment::Left);
-            f.render_widget(text, inner);
-            return;
-        }
-
-        // Additional safety: check terminal size is sufficient
-        if inner.width < 40 || inner.height < 10 {
-            let text =
-                Paragraph::new("Terminal too small for graph view.\nResize or use web dashboard.")
-                    .style(Style::default().fg(Color::Yellow))
-                    .alignment(Alignment::Center);
-            f.render_widget(text, inner);
-            return;
-        }
-
-        // Calculate node sizes based on label length
-        let node_height = 3u16; // Fixed height for all nodes
-        let min_width = 12u16;
-
-        // First, collect all labels (to own the strings for the lifetime of this function)
-        let mut labels: Vec<String> = Vec::new();
-        let mut border_styles: Vec<Style> = Vec::new();
-        let mut widths_vec: Vec<u16> = Vec::new();
-
-        // Process labels
-        for node in &processes {
-            let label = if node.active {
-                format!("● {}", node.label)
-            } else {
-                format!("○ {}", node.label)
-            };
-            let width = (label.len() as u16 + 4).max(min_width);
-            let border_style = if node.active {
-                Style::default().fg(Color::Green)
-            } else {
-                Style::default().fg(Color::DarkGray)
-            };
-            labels.push(label);
-            border_styles.push(border_style);
-            widths_vec.push(width);
-        }
-
-        // Topic labels
-        for node in &topics {
-            let label = format!("◆ {}", node.label);
-            let width = (label.len() as u16 + 4).max(min_width);
-            let border_style = Style::default().fg(Color::Yellow);
-            labels.push(label);
-            border_styles.push(border_style);
-            widths_vec.push(width);
-        }
-
-        // Create NodeLayout for each node
-        // Order: processes first, then topics (for consistent indexing)
-        let mut node_layouts: Vec<NodeLayout> = Vec::new();
-        let mut current_index = 0usize;
-
-        // Add process nodes
-        for (i, node) in processes.iter().enumerate() {
-            let layout = NodeLayout::new((widths_vec[i], node_height))
-                .with_title(&labels[i])
-                .with_border_style(border_styles[i]);
-
-            node_layouts.push(layout);
-            id_to_index.insert(node.id.clone(), current_index);
-            current_index += 1;
-        }
-
-        // Add topic nodes
-        let offset = processes.len();
-        for (i, node) in topics.iter().enumerate() {
-            let idx = offset + i;
-            let layout = NodeLayout::new((widths_vec[idx], node_height))
-                .with_title(&labels[idx])
-                .with_border_style(border_styles[idx]);
-
-            node_layouts.push(layout);
-            id_to_index.insert(node.id.clone(), current_index);
-            current_index += 1;
-        }
-
-        // Create connections
-        // tui-nodes uses port indices: each node can have multiple input/output ports
-        // For simplicity, we use port 0 for all connections
-        let mut connections: Vec<Connection> = Vec::new();
-        let node_count = node_layouts.len();
-
-        for edge in &self.graph_edges {
-            if let (Some(&from_idx), Some(&to_idx)) =
-                (id_to_index.get(&edge.from), id_to_index.get(&edge.to))
-            {
-                // Bounds check to prevent panic in tui-nodes
-                if from_idx >= node_count || to_idx >= node_count {
-                    continue;
-                }
-
-                let line_style = match (&edge.edge_type, edge.active) {
-                    (TuiEdgeType::Publish, true) => Style::default().fg(Color::Blue),
-                    (TuiEdgeType::Publish, false) => Style::default().fg(Color::DarkGray),
-                    (TuiEdgeType::Subscribe, true) => Style::default().fg(Color::Magenta),
-                    (TuiEdgeType::Subscribe, false) => Style::default().fg(Color::DarkGray),
-                };
-
-                let connection = Connection::new(from_idx, 0, to_idx, 0)
-                    .with_line_type(LineType::Rounded)
-                    .with_line_style(line_style);
-
-                connections.push(connection);
-            }
-        }
-
-        // Create the NodeGraph widget
-        let mut node_graph = NodeGraph::new(
-            node_layouts,
-            connections,
-            inner.width as usize,
-            inner.height as usize,
-        );
-
-        // Calculate layout
-        node_graph.calculate();
-
-        // Get the sub-areas for each node
-        let node_areas = node_graph.split(inner);
-
-        // Render the graph using StatefulWidget
-        // NodeGraph requires a state, we use a unit tuple for now
-        let mut state = ();
-        StatefulWidget::render(node_graph, inner, f.buffer_mut(), &mut state);
-
-        // Render node content inside each node area
-        for (i, node_area) in node_areas.iter().enumerate() {
-            if node_area.width > 2 && node_area.height > 2 {
-                // Get the inner area (inside borders)
-                let content_area = Rect {
-                    x: node_area.x + 1,
-                    y: node_area.y + 1,
-                    width: node_area.width.saturating_sub(2),
-                    height: node_area.height.saturating_sub(2),
-                };
-
-                // Determine if this is a process or topic
-                let is_process = i < processes.len();
-                let node = if is_process {
-                    processes.get(i)
-                } else {
-                    topics.get(i - processes.len())
-                };
-
-                if let Some(node) = node {
-                    // Show additional info in the node
-                    let info = if is_process {
-                        if let Some(pid) = node.pid {
-                            format!("PID: {}", pid)
-                        } else {
-                            String::new()
-                        }
-                    } else {
-                        String::new()
-                    };
-
-                    if !info.is_empty() && content_area.height > 0 {
-                        let info_style = Style::default().fg(Color::Gray);
-                        let info_text = Paragraph::new(info).style(info_style);
-                        f.render_widget(info_text, content_area);
-                    }
-                }
-            }
-        }
     }
 
     fn draw_network(&self, f: &mut Frame, area: Rect) {
@@ -1986,7 +1627,7 @@ impl TuiDashboard {
                 Style::default().fg(Color::Cyan),
             )]),
             Line::from(
-                "  Tab        - Next tab (Overview  Nodes  Topics  Graph  Packages  Params)",
+                "  Tab        - Next tab (Overview  Nodes  Topics  Network  Packages  Params)",
             ),
             Line::from("  Shift+Tab  - Previous tab"),
             Line::from("  ↑/↓        - Navigate lists"),
@@ -2007,14 +1648,6 @@ impl TuiDashboard {
             Line::from("  Enter      - Open log panel for selected node/topic"),
             Line::from("  ESC        - Close log panel"),
             Line::from("  Shift+↑↓   - Switch between nodes/topics while log panel is open"),
-            Line::from(""),
-            Line::from(vec![Span::styled(
-                "Graph Tab:",
-                Style::default().fg(Color::Cyan),
-            )]),
-            Line::from("  L          - Toggle layout (Hierarchical/Vertical)"),
-            Line::from("  +/-        - Zoom in/out"),
-            Line::from("  Arrow keys - Pan the graph view"),
             Line::from(""),
             Line::from(vec![Span::styled(
                 "Packages Tab:",
@@ -2044,7 +1677,7 @@ impl TuiDashboard {
             Line::from("  Overview   - Summary of nodes and topics (top 10)"),
             Line::from("  Nodes      - Full list of detected HORUS nodes with details"),
             Line::from("  Topics     - Full list of shared memory topics"),
-            Line::from("  Graph      - Node-topic graph visualization with pub/sub arrows"),
+            Line::from("  Network    - Network statistics and connections"),
             Line::from("  Packages   - Local workspaces and global packages (hierarchical)"),
             Line::from("  Params     - Runtime configuration parameters (editable)"),
             Line::from(""),
@@ -2242,9 +1875,6 @@ impl TuiDashboard {
         if let Ok(topics) = get_active_topics() {
             self.topics = topics;
         }
-
-        // Update graph data
-        self.update_graph_data();
 
         Ok(())
     }
@@ -2670,477 +2300,6 @@ impl TuiDashboard {
             self.param_edit_mode = ParamEditMode::None;
         }
     }
-
-    fn update_graph_data(&mut self) {
-        // Discover graph data from the graph module
-        let (graph_nodes, graph_edges) = crate::graph::discover_graph_data();
-
-        // Convert to TUI graph nodes
-        self.graph_nodes = graph_nodes
-            .into_iter()
-            .map(|node| TuiGraphNode {
-                id: node.id,
-                label: node.label,
-                node_type: match node.node_type {
-                    crate::graph::NodeType::Process => TuiNodeType::Process,
-                    crate::graph::NodeType::Topic => TuiNodeType::Topic,
-                },
-                x: 0, // Will be set by layout
-                y: 0,
-                pid: node.pid,
-                active: node.active,
-            })
-            .collect();
-
-        // Convert to TUI graph edges
-        self.graph_edges = graph_edges
-            .into_iter()
-            .map(|edge| TuiGraphEdge {
-                from: edge.from,
-                to: edge.to,
-                edge_type: match edge.edge_type {
-                    crate::graph::EdgeType::Publish => TuiEdgeType::Publish,
-                    crate::graph::EdgeType::Subscribe => TuiEdgeType::Subscribe,
-                },
-                active: edge.active,
-            })
-            .collect();
-
-        // Apply layout algorithm
-        self.apply_graph_layout();
-    }
-
-    fn apply_graph_layout(&mut self) {
-        if self.graph_nodes.is_empty() {
-            return;
-        }
-
-        match self.graph_layout {
-            GraphLayout::Hierarchical => self.apply_hierarchical_layout(),
-            GraphLayout::Vertical => self.apply_vertical_layout(),
-            GraphLayout::ForceDirected => self.apply_force_directed_layout(),
-        }
-    }
-
-    fn apply_hierarchical_layout(&mut self) {
-        use std::collections::HashMap;
-
-        // Barycenter Heuristic Layout: Minimizes edge crossings in bipartite graph
-        // This is the same algorithm used in the web dashboard
-
-        // Separate processes and topics
-        let mut processes: Vec<String> = Vec::new();
-        let mut topics: Vec<String> = Vec::new();
-
-        for node in &self.graph_nodes {
-            match node.node_type {
-                TuiNodeType::Process => processes.push(node.id.clone()),
-                TuiNodeType::Topic => topics.push(node.id.clone()),
-            }
-        }
-
-        if processes.is_empty() && topics.is_empty() {
-            return;
-        }
-
-        // Build adjacency maps
-        let mut process_to_topics: HashMap<String, Vec<String>> = HashMap::new();
-        let mut topic_to_processes: HashMap<String, Vec<String>> = HashMap::new();
-
-        for edge in &self.graph_edges {
-            if let (Some(from_node), Some(to_node)) = (
-                self.graph_nodes.iter().find(|n| n.id == edge.from),
-                self.graph_nodes.iter().find(|n| n.id == edge.to),
-            ) {
-                match (&from_node.node_type, &to_node.node_type) {
-                    (TuiNodeType::Process, TuiNodeType::Topic) => {
-                        process_to_topics
-                            .entry(edge.from.clone())
-                            .or_default()
-                            .push(edge.to.clone());
-                        topic_to_processes
-                            .entry(edge.to.clone())
-                            .or_default()
-                            .push(edge.from.clone());
-                    }
-                    (TuiNodeType::Topic, TuiNodeType::Process) => {
-                        topic_to_processes
-                            .entry(edge.from.clone())
-                            .or_default()
-                            .push(edge.to.clone());
-                        process_to_topics
-                            .entry(edge.to.clone())
-                            .or_default()
-                            .push(edge.from.clone());
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        // Initial ordering (by ID for deterministic results)
-        let mut process_order = processes.clone();
-        process_order.sort();
-        let mut topic_order = topics.clone();
-        topic_order.sort();
-
-        // Barycenter iterations (5 iterations for convergence)
-        for _ in 0..5 {
-            // Reorder topics based on average position of connected processes
-            let mut topic_barycenters: Vec<(String, f32)> = topic_order
-                .iter()
-                .map(|topic_id| {
-                    let connected_processes = topic_to_processes.get(topic_id);
-                    let barycenter = if let Some(procs) = connected_processes {
-                        if procs.is_empty() {
-                            0.0
-                        } else {
-                            let sum: f32 = procs
-                                .iter()
-                                .filter_map(|proc_id| {
-                                    process_order
-                                        .iter()
-                                        .position(|p| p == proc_id)
-                                        .map(|i| i as f32)
-                                })
-                                .sum();
-                            sum / procs.len() as f32
-                        }
-                    } else {
-                        0.0
-                    };
-                    (topic_id.clone(), barycenter)
-                })
-                .collect();
-
-            topic_barycenters
-                .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-            topic_order = topic_barycenters.into_iter().map(|(id, _)| id).collect();
-
-            // Reorder processes based on average position of connected topics
-            let mut process_barycenters: Vec<(String, f32)> = process_order
-                .iter()
-                .map(|process_id| {
-                    let connected_topics = process_to_topics.get(process_id);
-                    let barycenter = if let Some(tops) = connected_topics {
-                        if tops.is_empty() {
-                            0.0
-                        } else {
-                            let sum: f32 = tops
-                                .iter()
-                                .filter_map(|topic_id| {
-                                    topic_order
-                                        .iter()
-                                        .position(|t| t == topic_id)
-                                        .map(|i| i as f32)
-                                })
-                                .sum();
-                            sum / tops.len() as f32
-                        }
-                    } else {
-                        0.0
-                    };
-                    (process_id.clone(), barycenter)
-                })
-                .collect();
-
-            process_barycenters
-                .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-            process_order = process_barycenters.into_iter().map(|(id, _)| id).collect();
-        }
-
-        // Calculate optimal spacing - more space for cleaner graph
-        let process_spacing = 4; // Vertical space between processes
-        let topic_spacing = 4; // Vertical space between topics
-
-        // Calculate label width for dynamic positioning
-        let max_label_len = process_order
-            .iter()
-            .filter_map(|p| self.graph_nodes.iter().find(|n| &n.id == p))
-            .map(|n| n.label.len())
-            .max()
-            .unwrap_or(20);
-
-        // Position processes on left, vertically distributed
-        let process_x = 2;
-        let process_start_y = 2;
-
-        for (i, process_id) in process_order.iter().enumerate() {
-            if let Some(node) = self.graph_nodes.iter_mut().find(|n| &n.id == process_id) {
-                node.x = process_x;
-                node.y = process_start_y + (i as i32 * process_spacing);
-            }
-        }
-
-        // Position topics on right with good gap for edges
-        let topic_x = process_x + max_label_len as i32 + 25; // More space for edges
-        let topic_start_y = 2;
-
-        for (i, topic_id) in topic_order.iter().enumerate() {
-            if let Some(node) = self.graph_nodes.iter_mut().find(|n| &n.id == topic_id) {
-                node.x = topic_x;
-                node.y = topic_start_y + (i as i32 * topic_spacing);
-            }
-        }
-    }
-
-    fn apply_vertical_layout(&mut self) {
-        use std::collections::HashMap;
-
-        // Separate processes and topics
-        let mut processes: Vec<String> = Vec::new();
-        let mut topics: Vec<String> = Vec::new();
-
-        for node in &self.graph_nodes {
-            match node.node_type {
-                TuiNodeType::Process => processes.push(node.id.clone()),
-                TuiNodeType::Topic => topics.push(node.id.clone()),
-            }
-        }
-
-        // Build adjacency map
-        let mut process_to_topics: HashMap<String, Vec<String>> = HashMap::new();
-        let mut topic_to_processes: HashMap<String, Vec<String>> = HashMap::new();
-
-        for edge in &self.graph_edges {
-            if let (Some(from_node), Some(to_node)) = (
-                self.graph_nodes.iter().find(|n| n.id == edge.from),
-                self.graph_nodes.iter().find(|n| n.id == edge.to),
-            ) {
-                match (&from_node.node_type, &to_node.node_type) {
-                    (TuiNodeType::Process, TuiNodeType::Topic) => {
-                        process_to_topics
-                            .entry(edge.from.clone())
-                            .or_default()
-                            .push(edge.to.clone());
-                    }
-                    (TuiNodeType::Topic, TuiNodeType::Process) => {
-                        topic_to_processes
-                            .entry(edge.from.clone())
-                            .or_default()
-                            .push(edge.to.clone());
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        // Calculate dynamic spacing based on label lengths
-        let max_process_len = processes
-            .iter()
-            .filter_map(|p| self.graph_nodes.iter().find(|n| &n.id == p))
-            .map(|n| n.label.len())
-            .max()
-            .unwrap_or(15);
-
-        let max_topic_len = topics
-            .iter()
-            .filter_map(|t| self.graph_nodes.iter().find(|n| &n.id == t))
-            .map(|n| n.label.len() + 2) // +2 for brackets
-            .max()
-            .unwrap_or(15);
-
-        // Layout processes on top
-        let process_y = 2;
-        let mut process_x = 3;
-        let process_spacing = (max_process_len + 8) as i32; // Dynamic spacing
-
-        for process_id in &processes {
-            if let Some(node) = self.graph_nodes.iter_mut().find(|n| &n.id == process_id) {
-                node.x = process_x;
-                node.y = process_y;
-                process_x += process_spacing;
-            }
-        }
-
-        // Layout topics on bottom, aligned with their connected processes when possible
-        let topic_y = 10;
-        let mut topic_x = 3;
-        let topic_spacing = (max_topic_len + 5) as i32; // Dynamic spacing
-        let mut topic_positions: HashMap<String, i32> = HashMap::new();
-
-        for topic_id in &topics {
-            // Try to align with connected processes
-            if let Some(connected_procs) = topic_to_processes.get(topic_id) {
-                if !connected_procs.is_empty() {
-                    // Calculate average X position of connected processes
-                    let avg_x: f32 = connected_procs
-                        .iter()
-                        .filter_map(|p| self.graph_nodes.iter().find(|n| &n.id == p))
-                        .map(|n| n.x as f32)
-                        .sum::<f32>()
-                        / connected_procs.len() as f32;
-
-                    topic_x = avg_x as i32;
-                }
-            }
-
-            // Ensure minimum spacing from previous topics
-            if let Some(&last_x) = topic_positions.values().max() {
-                if topic_x < (last_x + topic_spacing) {
-                    topic_x = last_x + topic_spacing;
-                }
-            }
-
-            if let Some(node) = self.graph_nodes.iter_mut().find(|n| &n.id == topic_id) {
-                node.x = topic_x;
-                node.y = topic_y;
-                topic_positions.insert(topic_id.clone(), topic_x);
-            }
-
-            topic_x += topic_spacing;
-        }
-    }
-
-    fn apply_force_directed_layout(&mut self) {
-        use std::collections::HashMap;
-
-        // Simple force-directed layout using spring physics
-        // This creates a visually pleasing automatic layout
-        const ITERATIONS: usize = 50;
-        const REPULSION_STRENGTH: f32 = 100.0;
-        const ATTRACTION_STRENGTH: f32 = 0.05;
-        const DAMPING: f32 = 0.85;
-
-        // Initialize positions if nodes have default (0,0) positions
-        let node_count = self.graph_nodes.len();
-        for (i, node) in self.graph_nodes.iter_mut().enumerate() {
-            if node.x == 0 && node.y == 0 {
-                // Spread nodes in a circle initially
-                let angle = (i as f32 * 2.0 * std::f32::consts::PI) / node_count as f32;
-                node.x = (50.0 + 20.0 * angle.cos()) as i32;
-                node.y = (15.0 + 10.0 * angle.sin()) as i32;
-            }
-        }
-
-        // Build edge map for attraction forces
-        let mut edge_map: HashMap<String, Vec<String>> = HashMap::new();
-        for edge in &self.graph_edges {
-            edge_map
-                .entry(edge.from.clone())
-                .or_default()
-                .push(edge.to.clone());
-            edge_map
-                .entry(edge.to.clone())
-                .or_default()
-                .push(edge.from.clone());
-        }
-
-        // Simulate physics
-        for _ in 0..ITERATIONS {
-            let mut forces: HashMap<String, (f32, f32)> = HashMap::new();
-
-            // Initialize forces
-            for node in &self.graph_nodes {
-                forces.insert(node.id.clone(), (0.0, 0.0));
-            }
-
-            // Repulsion between all nodes
-            for i in 0..self.graph_nodes.len() {
-                for j in (i + 1)..self.graph_nodes.len() {
-                    let node1 = &self.graph_nodes[i];
-                    let node2 = &self.graph_nodes[j];
-
-                    let dx = node2.x as f32 - node1.x as f32;
-                    let dy = node2.y as f32 - node1.y as f32;
-                    let dist = (dx * dx + dy * dy).sqrt().max(1.0);
-
-                    let force = REPULSION_STRENGTH / (dist * dist);
-                    let fx = (dx / dist) * force;
-                    let fy = (dy / dist) * force;
-
-                    if let Some(f) = forces.get_mut(&node1.id) {
-                        f.0 -= fx;
-                        f.1 -= fy;
-                    }
-                    if let Some(f) = forces.get_mut(&node2.id) {
-                        f.0 += fx;
-                        f.1 += fy;
-                    }
-                }
-            }
-
-            // Attraction along edges
-            for (from_id, to_ids) in &edge_map {
-                if let Some(from_node) = self.graph_nodes.iter().find(|n| &n.id == from_id) {
-                    for to_id in to_ids {
-                        if let Some(to_node) = self.graph_nodes.iter().find(|n| &n.id == to_id) {
-                            let dx = to_node.x as f32 - from_node.x as f32;
-                            let dy = to_node.y as f32 - from_node.y as f32;
-
-                            let force_x = dx * ATTRACTION_STRENGTH;
-                            let force_y = dy * ATTRACTION_STRENGTH;
-
-                            if let Some(f) = forces.get_mut(from_id) {
-                                f.0 += force_x;
-                                f.1 += force_y;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Apply forces with damping
-            for node in &mut self.graph_nodes {
-                if let Some((fx, fy)) = forces.get(&node.id) {
-                    node.x = ((node.x as f32 + fx * DAMPING) as i32).clamp(3, 120);
-                    node.y = ((node.y as f32 + fy * DAMPING) as i32).clamp(2, 40);
-                }
-            }
-        }
-
-        // Apply type-based clustering to keep processes and topics somewhat separated
-        let mut process_center_x = 0;
-        let mut process_center_y = 0;
-        let mut process_count = 0;
-        let mut topic_center_x = 0;
-        let mut topic_center_y = 0;
-        let mut topic_count = 0;
-
-        for node in &self.graph_nodes {
-            match node.node_type {
-                TuiNodeType::Process => {
-                    process_center_x += node.x;
-                    process_center_y += node.y;
-                    process_count += 1;
-                }
-                TuiNodeType::Topic => {
-                    topic_center_x += node.x;
-                    topic_center_y += node.y;
-                    topic_count += 1;
-                }
-            }
-        }
-
-        if process_count > 0 {
-            process_center_x /= process_count;
-            process_center_y /= process_count;
-        }
-
-        if topic_count > 0 {
-            topic_center_x /= topic_count;
-            topic_center_y /= topic_count;
-        }
-
-        // Gently push types toward their clusters for better organization
-        for node in &mut self.graph_nodes {
-            match node.node_type {
-                TuiNodeType::Process if process_count > 0 => {
-                    let dx = process_center_x - node.x;
-                    let dy = process_center_y - node.y;
-                    node.x += dx / 10;
-                    node.y += dy / 10;
-                }
-                TuiNodeType::Topic if topic_count > 0 => {
-                    let dx = topic_center_x - node.x;
-                    let dy = topic_center_y - node.y;
-                    node.x += dx / 10;
-                    node.y += dy / 10;
-                }
-                _ => {}
-            }
-        }
-    }
 }
 
 // Unified backend functions using monitor module
@@ -3547,7 +2706,6 @@ mod tests {
         assert_eq!(Tab::Overview.as_str(), "Overview");
         assert_eq!(Tab::Nodes.as_str(), "Nodes");
         assert_eq!(Tab::Topics.as_str(), "Topics");
-        assert_eq!(Tab::Graph.as_str(), "Graph");
         assert_eq!(Tab::Network.as_str(), "Network");
         assert_eq!(Tab::Packages.as_str(), "Packages");
         assert_eq!(Tab::Parameters.as_str(), "Params");
@@ -3556,11 +2714,10 @@ mod tests {
     #[test]
     fn test_tab_all_returns_all_tabs() {
         let tabs = Tab::all();
-        assert_eq!(tabs.len(), 7);
+        assert_eq!(tabs.len(), 6);
         assert!(tabs.contains(&Tab::Overview));
         assert!(tabs.contains(&Tab::Nodes));
         assert!(tabs.contains(&Tab::Topics));
-        assert!(tabs.contains(&Tab::Graph));
         assert!(tabs.contains(&Tab::Network));
         assert!(tabs.contains(&Tab::Packages));
         assert!(tabs.contains(&Tab::Parameters));
@@ -3589,9 +2746,6 @@ mod tests {
             PackagePanelFocus::LocalWorkspaces
         );
         assert_eq!(dashboard.overview_panel_focus, OverviewPanelFocus::Nodes);
-        assert_eq!(dashboard.graph_zoom, 1.0);
-        assert_eq!(dashboard.graph_offset_x, 0);
-        assert_eq!(dashboard.graph_offset_y, 0);
     }
 
     #[test]
@@ -3619,9 +2773,6 @@ mod tests {
 
         dashboard.next_tab();
         assert_eq!(dashboard.active_tab, Tab::Topics);
-
-        dashboard.next_tab();
-        assert_eq!(dashboard.active_tab, Tab::Graph);
 
         dashboard.next_tab();
         assert_eq!(dashboard.active_tab, Tab::Network);
@@ -3653,7 +2804,7 @@ mod tests {
         assert_eq!(dashboard.active_tab, Tab::Network);
 
         dashboard.prev_tab();
-        assert_eq!(dashboard.active_tab, Tab::Graph);
+        assert_eq!(dashboard.active_tab, Tab::Topics);
     }
 
     // ========================================================================
@@ -3868,44 +3019,6 @@ mod tests {
     }
 
     // ========================================================================
-    // Graph State Tests
-    // ========================================================================
-
-    #[test]
-    fn test_graph_zoom_bounds() {
-        let mut dashboard = TuiDashboard::new();
-        assert_eq!(dashboard.graph_zoom, 1.0);
-
-        // Simulate zoom in
-        dashboard.graph_zoom = 2.0;
-        assert_eq!(dashboard.graph_zoom, 2.0);
-
-        // Simulate zoom out
-        dashboard.graph_zoom = 0.5;
-        assert_eq!(dashboard.graph_zoom, 0.5);
-    }
-
-    #[test]
-    fn test_graph_offset() {
-        let mut dashboard = TuiDashboard::new();
-        assert_eq!(dashboard.graph_offset_x, 0);
-        assert_eq!(dashboard.graph_offset_y, 0);
-
-        // Simulate panning
-        dashboard.graph_offset_x = 10;
-        dashboard.graph_offset_y = -5;
-
-        assert_eq!(dashboard.graph_offset_x, 10);
-        assert_eq!(dashboard.graph_offset_y, -5);
-    }
-
-    #[test]
-    fn test_graph_layout_default() {
-        let dashboard = TuiDashboard::new();
-        assert_eq!(dashboard.graph_layout, GraphLayout::Hierarchical);
-    }
-
-    // ========================================================================
     // Data Model Tests
     // ========================================================================
 
@@ -4006,111 +3119,5 @@ mod tests {
 
         // Cache time should be set to force initial load
         assert!(dashboard.workspace_cache_time.elapsed().as_secs() >= 5);
-    }
-
-    // ========================================================================
-    // Graph Node and Edge Tests
-    // ========================================================================
-
-    #[test]
-    fn test_tui_graph_node_creation() {
-        let node = TuiGraphNode {
-            id: "node1".to_string(),
-            label: "Node 1".to_string(),
-            node_type: TuiNodeType::Process,
-            x: 100,
-            y: 200,
-            pid: Some(1234),
-            active: true,
-        };
-
-        assert_eq!(node.id, "node1");
-        assert_eq!(node.label, "Node 1");
-        assert_eq!(node.node_type, TuiNodeType::Process);
-        assert_eq!(node.x, 100);
-        assert_eq!(node.y, 200);
-        assert_eq!(node.pid, Some(1234));
-        assert!(node.active);
-    }
-
-    #[test]
-    fn test_tui_graph_edge_creation() {
-        let edge = TuiGraphEdge {
-            from: "node1".to_string(),
-            to: "topic1".to_string(),
-            edge_type: TuiEdgeType::Publish,
-            active: true,
-        };
-
-        assert_eq!(edge.from, "node1");
-        assert_eq!(edge.to, "topic1");
-        assert_eq!(edge.edge_type, TuiEdgeType::Publish);
-        assert!(edge.active);
-    }
-
-    #[test]
-    fn test_tui_node_types() {
-        assert_ne!(TuiNodeType::Process, TuiNodeType::Topic);
-
-        let process_node = TuiGraphNode {
-            id: "p1".to_string(),
-            label: "Process".to_string(),
-            node_type: TuiNodeType::Process,
-            x: 0,
-            y: 0,
-            pid: Some(1000),
-            active: true,
-        };
-
-        let topic_node = TuiGraphNode {
-            id: "t1".to_string(),
-            label: "Topic".to_string(),
-            node_type: TuiNodeType::Topic,
-            x: 0,
-            y: 0,
-            pid: None,
-            active: true,
-        };
-
-        assert_eq!(process_node.node_type, TuiNodeType::Process);
-        assert_eq!(topic_node.node_type, TuiNodeType::Topic);
-    }
-
-    #[test]
-    fn test_tui_edge_types() {
-        assert_ne!(TuiEdgeType::Publish, TuiEdgeType::Subscribe);
-
-        let pub_edge = TuiGraphEdge {
-            from: "a".to_string(),
-            to: "b".to_string(),
-            edge_type: TuiEdgeType::Publish,
-            active: true,
-        };
-
-        let sub_edge = TuiGraphEdge {
-            from: "c".to_string(),
-            to: "d".to_string(),
-            edge_type: TuiEdgeType::Subscribe,
-            active: false,
-        };
-
-        assert_eq!(pub_edge.edge_type, TuiEdgeType::Publish);
-        assert_eq!(sub_edge.edge_type, TuiEdgeType::Subscribe);
-    }
-
-    #[test]
-    fn test_graph_node_inactive() {
-        let inactive_node = TuiGraphNode {
-            id: "inactive".to_string(),
-            label: "Inactive Node".to_string(),
-            node_type: TuiNodeType::Process,
-            x: 50,
-            y: 50,
-            pid: None,
-            active: false,
-        };
-
-        assert!(!inactive_node.active);
-        assert!(inactive_node.pid.is_none());
     }
 }
