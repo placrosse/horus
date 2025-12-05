@@ -19,13 +19,16 @@ use tracing::{debug, info, warn};
 
 use crate::assets::mesh::{MeshLoadOptions, MeshLoader};
 use crate::assets::resolver::PathResolver;
+use crate::horus_bridge::subscriber::RobotCommandHandler;
 use crate::physics::collider::{ColliderBuilder, ColliderShape};
+use crate::physics::diff_drive::{CmdVel, DifferentialDrive};
 use crate::physics::joints::{
     create_prismatic_joint_with_limits, create_revolute_joint_with_limits, create_spherical_joint,
     JointType,
 };
 use crate::physics::rigid_body::RigidBodyComponent;
 use crate::physics::world::PhysicsWorld;
+use crate::robot::gazebo::DifferentialDriveConfig;
 use crate::robot::robot::Robot;
 
 /// MJCF model loader
@@ -1455,6 +1458,29 @@ impl MJCFLoader {
         // Add Robot component
         commands.entity(root_entity).insert(Robot::new(&model.name));
 
+        // Detect and add differential drive configuration
+        if let Some(diff_drive_config) = self.detect_diff_drive(&model) {
+            let diff_drive = DifferentialDrive::new(
+                diff_drive_config.wheel_separation,
+                diff_drive_config.wheel_diameter / 2.0,
+            )
+            .with_limits(
+                diff_drive_config.max_wheel_torque,
+                diff_drive_config.max_wheel_acceleration,
+            );
+
+            commands.entity(root_entity).insert((
+                diff_drive,
+                CmdVel::default(),
+                RobotCommandHandler::new(&model.name),
+            ));
+
+            info!(
+                "Added differential drive to MJCF model '{}': wheel_sep={:.3}m, wheel_radius={:.3}m",
+                model.name, diff_drive_config.wheel_separation, diff_drive_config.wheel_diameter / 2.0
+            );
+        }
+
         info!(
             "Spawned MJCF model '{}' with {} actuators and {} sensors",
             model.name,
@@ -1463,6 +1489,175 @@ impl MJCFLoader {
         );
 
         Ok(root_entity)
+    }
+
+    /// Detect differential drive configuration from MJCF actuators
+    ///
+    /// MuJoCo differential drive robots typically have:
+    /// - Two velocity actuators controlling wheel joints
+    /// - Wheel joints with "wheel" or "drive" in their name
+    fn detect_diff_drive(&self, model: &MJCFModel) -> Option<DifferentialDriveConfig> {
+        // Find velocity actuators that look like wheel actuators
+        let wheel_actuators: Vec<_> = model
+            .actuators
+            .iter()
+            .filter(|a| {
+                // Must be velocity actuator (for differential drive)
+                let is_velocity = a.actuator_type == MJCFActuatorType::Velocity
+                    || a.actuator_type == MJCFActuatorType::Motor;
+
+                // Must reference a joint
+                let has_joint = a.joint.is_some();
+
+                // Joint or actuator name should contain wheel/drive keywords
+                let name_lower = a.name.to_lowercase();
+                let joint_name_lower = a
+                    .joint
+                    .as_ref()
+                    .map(|j| j.to_lowercase())
+                    .unwrap_or_default();
+                let is_wheel = name_lower.contains("wheel")
+                    || name_lower.contains("drive")
+                    || joint_name_lower.contains("wheel")
+                    || joint_name_lower.contains("drive");
+
+                is_velocity && has_joint && is_wheel
+            })
+            .collect();
+
+        if wheel_actuators.len() < 2 {
+            return None;
+        }
+
+        // Try to find a left-right pair
+        let mut left_actuator = None;
+        let mut right_actuator = None;
+
+        for actuator in &wheel_actuators {
+            let name_lower = actuator.name.to_lowercase();
+            let joint_lower = actuator
+                .joint
+                .as_ref()
+                .map(|j| j.to_lowercase())
+                .unwrap_or_default();
+
+            if name_lower.contains("left")
+                || joint_lower.contains("left")
+                || name_lower.contains("_l_")
+                || name_lower.ends_with("_l")
+            {
+                left_actuator = Some(actuator);
+            } else if name_lower.contains("right")
+                || joint_lower.contains("right")
+                || name_lower.contains("_r_")
+                || name_lower.ends_with("_r")
+            {
+                right_actuator = Some(actuator);
+            }
+        }
+
+        // If we can't find explicit left/right, take the first two
+        let (left, right) = match (left_actuator, right_actuator) {
+            (Some(l), Some(r)) => (*l, *r),
+            _ if wheel_actuators.len() >= 2 => (wheel_actuators[0], wheel_actuators[1]),
+            _ => return None,
+        };
+
+        // Try to find wheel geometry from the joints
+        let left_joint_name = left.joint.as_ref()?;
+        let right_joint_name = right.joint.as_ref()?;
+
+        // Find joint positions to calculate wheel separation
+        let (left_y, right_y, wheel_radius) =
+            self.find_wheel_geometry(model, left_joint_name, right_joint_name)?;
+
+        let wheel_separation = (left_y - right_y).abs();
+
+        info!(
+            "Auto-detected MJCF differential drive: left='{}', right='{}', wheel_sep={:.3}m, wheel_radius={:.3}m",
+            left_joint_name, right_joint_name, wheel_separation, wheel_radius
+        );
+
+        Some(DifferentialDriveConfig {
+            left_joint: left_joint_name.clone(),
+            right_joint: right_joint_name.clone(),
+            wheel_separation,
+            wheel_diameter: wheel_radius * 2.0,
+            max_wheel_torque: 5.0,
+            max_wheel_acceleration: 2.0,
+            command_topic: "cmd_vel".to_string(),
+            odometry_topic: "odom".to_string(),
+        })
+    }
+
+    /// Find wheel geometry from MJCF body tree
+    fn find_wheel_geometry(
+        &self,
+        model: &MJCFModel,
+        left_joint: &str,
+        right_joint: &str,
+    ) -> Option<(f32, f32, f32)> {
+        let mut left_y = None;
+        let mut right_y = None;
+        let mut wheel_radius = 0.033f32; // Default
+
+        // Recursively search body tree for joints
+        fn find_joints_in_body(
+            body: &MJCFBody,
+            parent_pos: Vec3,
+            left_joint: &str,
+            right_joint: &str,
+            left_y: &mut Option<f32>,
+            right_y: &mut Option<f32>,
+            wheel_radius: &mut f32,
+        ) {
+            let body_pos = parent_pos + body.pos;
+
+            for joint in &body.joints {
+                let joint_pos_y = body_pos.y + joint.pos.y;
+
+                if joint.name == left_joint {
+                    *left_y = Some(joint_pos_y);
+                    // Try to get wheel radius from geoms
+                    for geom in &body.geoms {
+                        if matches!(
+                            geom.geom_type,
+                            MJCFGeomType::Cylinder | MJCFGeomType::Sphere
+                        ) {
+                            if let Some(&r) = geom.size.first() {
+                                *wheel_radius = r;
+                            }
+                        }
+                    }
+                } else if joint.name == right_joint {
+                    *right_y = Some(joint_pos_y);
+                }
+            }
+
+            for child in &body.children {
+                find_joints_in_body(
+                    child,
+                    body_pos,
+                    left_joint,
+                    right_joint,
+                    left_y,
+                    right_y,
+                    wheel_radius,
+                );
+            }
+        }
+
+        find_joints_in_body(
+            &model.worldbody,
+            Vec3::ZERO,
+            left_joint,
+            right_joint,
+            &mut left_y,
+            &mut right_y,
+            &mut wheel_radius,
+        );
+
+        Some((left_y?, right_y?, wheel_radius))
     }
 
     fn spawn_body_tree(
@@ -2004,5 +2199,84 @@ mod tests {
         assert_eq!(model.actuators[1].name, "pos1");
         assert_eq!(model.actuators[1].actuator_type, MJCFActuatorType::Position);
         assert_eq!(model.actuators[1].kp, 10.0);
+    }
+
+    #[test]
+    fn test_detect_diff_drive_from_mjcf() {
+        let xml = r#"
+        <mujoco model="diff_drive_robot">
+            <worldbody>
+                <body name="base">
+                    <geom type="box" size="0.1 0.1 0.05"/>
+                    <body name="left_wheel" pos="0 0.1 0">
+                        <joint name="left_wheel_joint" type="hinge" axis="0 1 0"/>
+                        <geom type="cylinder" size="0.04 0.02"/>
+                    </body>
+                    <body name="right_wheel" pos="0 -0.1 0">
+                        <joint name="right_wheel_joint" type="hinge" axis="0 1 0"/>
+                        <geom type="cylinder" size="0.04 0.02"/>
+                    </body>
+                </body>
+            </worldbody>
+            <actuator>
+                <velocity name="left_wheel_motor" joint="left_wheel_joint"/>
+                <velocity name="right_wheel_motor" joint="right_wheel_joint"/>
+            </actuator>
+        </mujoco>
+        "#;
+
+        let loader = MJCFLoader::new();
+        let model = loader.parse_string(xml, None).unwrap();
+
+        let config = loader.detect_diff_drive(&model);
+        assert!(
+            config.is_some(),
+            "Should detect differential drive from MJCF"
+        );
+
+        let config = config.unwrap();
+        assert_eq!(config.left_joint, "left_wheel_joint");
+        assert_eq!(config.right_joint, "right_wheel_joint");
+        assert!(
+            (config.wheel_separation - 0.2).abs() < 0.01,
+            "Wheel separation should be ~0.2m"
+        );
+        assert!(
+            (config.wheel_diameter / 2.0 - 0.04).abs() < 0.01,
+            "Wheel radius should be ~0.04m"
+        );
+    }
+
+    #[test]
+    fn test_no_diff_drive_for_arm_robot() {
+        let xml = r#"
+        <mujoco model="arm_robot">
+            <worldbody>
+                <body name="base">
+                    <body name="link1">
+                        <joint name="joint1" type="hinge" axis="0 0 1"/>
+                        <geom type="box" size="0.1 0.05 0.05"/>
+                        <body name="link2">
+                            <joint name="joint2" type="hinge" axis="0 1 0"/>
+                            <geom type="box" size="0.1 0.05 0.05"/>
+                        </body>
+                    </body>
+                </body>
+            </worldbody>
+            <actuator>
+                <position name="motor1" joint="joint1"/>
+                <position name="motor2" joint="joint2"/>
+            </actuator>
+        </mujoco>
+        "#;
+
+        let loader = MJCFLoader::new();
+        let model = loader.parse_string(xml, None).unwrap();
+
+        let config = loader.detect_diff_drive(&model);
+        assert!(
+            config.is_none(),
+            "Should not detect diff drive for arm robot"
+        );
     }
 }

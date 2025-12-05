@@ -588,7 +588,9 @@ impl DepthCameraNode {
                     if let Ok(entries) = std::fs::read_dir(zed_by_id) {
                         for entry in entries.flatten() {
                             if let Some(name) = entry.file_name().to_str() {
-                                if name.to_lowercase().contains("stereolabs") || name.to_lowercase().contains("zed") {
+                                if name.to_lowercase().contains("stereolabs")
+                                    || name.to_lowercase().contains("zed")
+                                {
                                     ctx.log_info(&format!("Found ZED device: {}", name));
                                     zed_found = true;
                                     break;
@@ -603,7 +605,8 @@ impl DepthCameraNode {
                     let video_path = format!("/dev/video{}", i);
                     if std::path::Path::new(&video_path).exists() {
                         // Check if this is a ZED camera by reading device info
-                        let sys_path = format!("/sys/class/video4linux/video{}/device/manufacturer", i);
+                        let sys_path =
+                            format!("/sys/class/video4linux/video{}/device/manufacturer", i);
                         if let Ok(manufacturer) = std::fs::read_to_string(&sys_path) {
                             if manufacturer.to_lowercase().contains("stereolabs") {
                                 ctx.log_info(&format!("Found ZED camera at /dev/video{}", i));
@@ -612,7 +615,8 @@ impl DepthCameraNode {
                             }
                         }
                         // Also check product name
-                        let product_path = format!("/sys/class/video4linux/video{}/device/product", i);
+                        let product_path =
+                            format!("/sys/class/video4linux/video{}/device/product", i);
                         if let Ok(product) = std::fs::read_to_string(&product_path) {
                             if product.to_lowercase().contains("zed") {
                                 ctx.log_info(&format!("Found ZED camera at /dev/video{}", i));

@@ -29,7 +29,7 @@ Roboclaw dual motor controller node supporting the full range of Roboclaw boards
 ## Quick Start
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<()> {
     let mut scheduler = Scheduler::new();
@@ -208,7 +208,7 @@ roboclaw.set_max_speed(1, 10000);
 ### Duty Cycle Control (Open Loop)
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 // Drive motor 1 at 50% forward
 let cmd = RoboclawCommand {
@@ -276,7 +276,7 @@ hub.send(cmd, &mut None).ok();
 ### Differential Drive Robot
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<()> {
     let mut scheduler = Scheduler::new();

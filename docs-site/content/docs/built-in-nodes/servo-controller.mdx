@@ -27,7 +27,7 @@ Standard PWM servo controller node for hobby servos (analog and digital). Suppor
 ## Quick Start
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<()> {
     let mut scheduler = Scheduler::new();
@@ -208,7 +208,7 @@ servo.set_max_angle(0, 170);  // Don't go above 170°
 ### Position Control (Angle)
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 // Set servo to 90 degrees
 let cmd = ServoCommand {
@@ -283,7 +283,7 @@ hub.send(cmd, &mut None).ok();
 ## Complete Example: Pan-Tilt Camera
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<()> {
     let mut scheduler = Scheduler::new();

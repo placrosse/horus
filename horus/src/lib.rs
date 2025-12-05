@@ -44,54 +44,160 @@ pub use horus_library as library;
 pub use serde;
 
 /// The HORUS prelude - everything you need to get started
+///
+/// This includes all core types, advanced features, and commonly used components.
+/// Just add `use horus::prelude::*;` to get started.
 pub mod prelude {
-    // Core node types
+    // ============================================
+    // Core Node Types
+    // ============================================
     pub use horus_core::core::node::NodeConfig;
     pub use horus_core::core::{LogSummary, Node, NodeInfo, NodeInfoExt, NodeState};
 
-    // Communication types
+    // ============================================
+    // Communication (IPC)
+    // ============================================
     pub use horus_core::communication::{Hub, Link};
 
+    // ============================================
     // Scheduling
-    pub use horus_core::scheduling::Scheduler;
+    // ============================================
+    pub use horus_core::scheduling::{ExecutionMode, RobotPreset, Scheduler, SchedulerConfig};
 
-    // Error types
+    // ============================================
+    // Safety & Fault Tolerance
+    // ============================================
+    pub use horus_core::scheduling::{
+        // BlackBox flight recorder
+        BlackBox, BlackBoxEvent,
+        // Checkpointing
+        Checkpoint, CheckpointManager,
+        // Redundancy/TMR voting
+        RedundancyManager, VoteResult, VotingStrategy,
+        // Safety monitoring
+        SafetyMonitor, SafetyState, SafetyStats, WCETEnforcer, Watchdog,
+        // Circuit breaker
+        CircuitBreaker, CircuitState,
+    };
+
+    // ============================================
+    // Advanced Executors
+    // ============================================
+    pub use horus_core::scheduling::{
+        AsyncIOExecutor, AsyncResult, BackgroundExecutor, IsolatedExecutor, ParallelExecutor,
+    };
+
+    // ============================================
+    // Profiling & Intelligence
+    // ============================================
+    pub use horus_core::scheduling::{
+        ExecutionTier, NodeProfile, NodeTier, OfflineProfiler, ProfileData, ProfileError,
+    };
+
+    // ============================================
+    // Record/Replay
+    // ============================================
+    pub use horus_core::scheduling::{
+        NodeRecorder, NodeRecording, NodeReplayer, NodeTickSnapshot, RecordingConfig,
+        RecordingManager, SchedulerRecording,
+    };
+
+    // ============================================
+    // Telemetry
+    // ============================================
+    pub use horus_core::scheduling::{TelemetryEndpoint, TelemetryManager};
+
+    // ============================================
+    // Runtime (OS-level features)
+    // ============================================
+    pub use horus_core::scheduling::{
+        apply_rt_optimizations, get_core_count, get_max_rt_priority, get_numa_node_count,
+        lock_all_memory, set_realtime_priority, set_thread_affinity,
+    };
+
+    // ============================================
+    // JIT Compilation
+    // ============================================
+    pub use horus_core::scheduling::JITCompiler;
+
+    // ============================================
+    // Memory & Tensors
+    // ============================================
+    pub use horus_core::memory::{TensorHandle, TensorPool, TensorPoolConfig};
+
+    // CUDA support (requires "cuda" feature)
+    #[cfg(feature = "cuda")]
+    pub use horus_core::memory::{cuda_available, cuda_device_count};
+
+    // ============================================
+    // HFrame Transform System
+    // ============================================
+    pub use horus_library::hframe::{timestamp_now, HFrame, HFrameConfig, Transform};
+
+    // ============================================
+    // Message Types (ALL from horus_library)
+    // ============================================
+    pub use horus_library::messages::tensor::{HorusTensor, TensorDevice, TensorDtype};
+    // Re-export all message types from horus_library
+    pub use horus_library::messages::*;
+
+    // ============================================
+    // Algorithms
+    // ============================================
+    pub use horus_library::algorithms::{
+        astar::AStar,
+        differential_drive::DifferentialDrive,
+        ekf::EKF,
+        kalman_filter::KalmanFilter,
+        occupancy_grid::OccupancyGrid,
+        pid::PID,
+        pure_pursuit::PurePursuit,
+        rrt::RRT,
+    };
+
+    // ============================================
+    // Error Types
+    // ============================================
     pub use horus_core::error::{HorusError, HorusResult};
     pub type Result<T> = HorusResult<T>;
 
-    // Common std types
+    // ============================================
+    // Common Std Types
+    // ============================================
     pub use std::sync::{Arc, Mutex};
     pub use std::time::{Duration, Instant};
 
+    // ============================================
+    // Macros
+    // ============================================
     #[cfg(feature = "macros")]
     pub use horus_macros::*;
 
-    // Common traits
+    // ============================================
+    // Common Traits
+    // ============================================
     pub use serde::{Deserialize, Serialize};
 
     // Re-export anyhow for error handling
     pub use anyhow::{anyhow, bail, ensure, Context, Result as AnyResult};
 
-    // Re-export all message types from horus_library for convenience
-    pub use horus_library::messages::*;
-
-    // Re-export commonly used node types from horus_library
-    // These are all available by default (standard-nodes feature)
+    // ============================================
+    // Built-in Nodes (standard-nodes feature)
+    // ============================================
     pub use horus_library::nodes::{
-        // Algorithm nodes (always available)
         DifferentialDriveNode,
         EmergencyStopNode,
-        // Input nodes (default: standard-nodes)
         JoystickInputNode,
         KeyboardInputNode,
         LocalizationNode,
         PathPlannerNode,
         PidControllerNode,
-        // Serial nodes (default: standard-nodes)
         SerialNode,
     };
 
-    // Hardware-specific nodes (require explicit feature flags)
+    // ============================================
+    // Hardware-specific Nodes (require feature flags)
+    // ============================================
     #[cfg(feature = "gpio-hardware")]
     pub use horus_library::nodes::{DigitalIONode, EncoderNode, ServoControllerNode};
 

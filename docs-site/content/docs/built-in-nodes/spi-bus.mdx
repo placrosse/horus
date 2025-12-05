@@ -25,7 +25,7 @@ Serial Peripheral Interface (SPI) bus communication node for high-speed data tra
 ## Quick Start
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<()> {
     let mut scheduler = Scheduler::new();
@@ -150,7 +150,7 @@ spi.configure_device(1, 500_000, 3); // CS1: 500kHz, Mode 3
 ### Basic Transfer
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 // Create SPI message
 let mut msg = SpiMessage::new(0, 4); // CS=0, 4 bytes

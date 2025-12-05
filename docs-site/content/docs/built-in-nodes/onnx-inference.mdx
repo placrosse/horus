@@ -116,7 +116,7 @@ fn main() -> Result<()> {
 ### Image Classification
 
 ```rust
-use horus_library::messages::ml::Predictions;
+use horus::prelude::*; // Provides ml::Predictions;
 
 let predictions_hub = Hub::<Predictions>::new("ml.predictions")?;
 
@@ -160,7 +160,7 @@ let config = InferenceConfig {
 ### Raw Tensor I/O
 
 ```rust
-use horus_library::messages::ml::Tensor;
+use horus::prelude::*; // Provides ml::Tensor;
 
 // For models that don't use images
 let input_pub = Hub::<Tensor>::new("ml.input.tensor")?;

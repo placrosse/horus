@@ -30,7 +30,7 @@ RGB-D camera interface for 3D vision sensors that capture color and depth data. 
 ```rust
 use horus_library::nodes::{DepthCameraNode, CameraModel};
 use horus_library::{DepthImage, PointCloud};
-use horus_core::{Scheduler, Hub};
+use horus::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut scheduler = Scheduler::new();
@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .model(CameraModel::RealSenseD435)
         .resolution(640, 480)
         .frame_rate(30)
-        .enable_pointcloud(true)
+        .enable_point_cloud(true)
         .build()?;
 
     scheduler.add(Box::new(camera), 50, Some(true));
@@ -53,13 +53,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 // Subscribe to depth data in another node:
 let depth_hub = Hub::<DepthImage>::new("depth_camera.depth.image")?;
-if let Some(depth) = depth_hub.recv_latest() {
+if let Some(depth) = depth_hub.recv(&mut ctx) {
     println!("Depth image: {}x{}", depth.width, depth.height);
 }
 
 // Subscribe to point cloud:
 let pc_hub = Hub::<PointCloud>::new("depth_camera.pointcloud")?;
-if let Some(pc) = pc_hub.recv_latest() {
+if let Some(pc) = pc_hub.recv(&mut ctx) {
     println!("Point cloud: {} points", pc.points.len());
 }
 ```
@@ -141,7 +141,7 @@ let camera = DepthCameraNode::builder()
     .model(CameraModel::RealSenseD435)
     .resolution(1280, 720)
     .frame_rate(30)
-    .enable_pointcloud(true)
+    .enable_point_cloud(true)
     .build()?;
 ```
 
@@ -159,13 +159,13 @@ camera.set_frame_rate(30);
 camera.set_depth_range(0.3, 10.0);
 
 // Enable features
-camera.enable_pointcloud(true);
+camera.enable_point_cloud(true);
 camera.enable_depth_alignment(true);
 
 // Post-processing filters
-camera.enable_spatial_filter(true);
-camera.enable_temporal_filter(true);
-camera.enable_hole_filling(true);
+camera.set_spatial_filter(true);
+camera.set_temporal_filter(true);
+camera.set_hole_filling(true);
 ```
 
 ## Configuration Parameters
@@ -177,7 +177,7 @@ camera.enable_hole_filling(true);
 | `depth_resolution` | `(u32, u32)` | `(640, 480)` | Depth resolution |
 | `frame_rate` | `u32` | `30` | Frame rate in Hz |
 | `depth_range` | `(f32, f32)` | `(0.3, 10.0)` | Min/max depth in meters |
-| `enable_pointcloud` | `bool` | `false` | Enable point cloud generation |
+| `enable_point_cloud` | `bool` | `false` | Enable point cloud generation |
 | `align_depth_to_color` | `bool` | `true` | Align depth to RGB frame |
 
 ## Topics
@@ -196,7 +196,7 @@ camera.enable_hole_filling(true);
 ### Basic Depth Sensing
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 use horus_library::nodes::{DepthCameraNode, CameraModel};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -216,9 +216,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Obstacle Detection
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 use horus_library::nodes::{DepthCameraNode, CameraModel};
-use horus_library::DepthImage;
+use horus::prelude::*;
 
 struct ObstacleDetector {
     depth_sub: Hub<DepthImage>,
@@ -261,7 +261,7 @@ impl Node for ObstacleDetector {
 ### Point Cloud for 3D Mapping
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 use horus_library::nodes::{DepthCameraNode, CameraModel};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -272,7 +272,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .model(CameraModel::RealSenseD435)
         .resolution(640, 480)
         .frame_rate(15)  // Lower rate for point cloud processing
-        .enable_pointcloud(true)
+        .enable_point_cloud(true)
         .build()?;
 
     scheduler.add(Box::new(camera), 15, Some(true));
@@ -369,7 +369,7 @@ let mut camera = DepthCameraNode::new(CameraModel::AzureKinect)?;
 camera.set_resolution(640, 480);
 
 // Disable point cloud if not needed
-camera.enable_pointcloud(false);
+camera.enable_point_cloud(false);
 
 // Use depth-only mode
 camera.enable_rgb(false);
@@ -380,9 +380,9 @@ camera.enable_rgb(false);
 **Solution:**
 ```rust
 // Enable post-processing filters
-camera.enable_spatial_filter(true);
-camera.enable_temporal_filter(true);
-camera.enable_hole_filling(true);
+camera.set_spatial_filter(true);
+camera.set_temporal_filter(true);
+camera.set_hole_filling(true);
 ```
 
 ## Performance Considerations

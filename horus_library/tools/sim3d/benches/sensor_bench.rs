@@ -42,10 +42,7 @@ fn create_sensor_test_world() -> (RigidBodySet, ColliderSet, QueryPipeline) {
 }
 
 /// Simulate GPS position calculation with noise
-fn simulate_gps_update(
-    true_position: Vector3<f32>,
-    noise_std: f32,
-) -> Vector3<f32> {
+fn simulate_gps_update(true_position: Vector3<f32>, noise_std: f32) -> Vector3<f32> {
     // Simple noise model (in real impl would use rand)
     let noise = vector![
         (true_position.x * 0.01).sin() * noise_std,
@@ -65,22 +62,18 @@ fn calculate_gps_velocity_simple(
 }
 
 /// Simulate GPS velocity with weighted average filter
-fn calculate_gps_velocity_weighted(
-    velocities: &[Vector3<f32>],
-) -> Vector3<f32> {
+fn calculate_gps_velocity_weighted(velocities: &[Vector3<f32>]) -> Vector3<f32> {
     if velocities.is_empty() {
         return Vector3::zeros();
     }
 
-    let weights: Vec<f32> = (0..velocities.len())
-        .map(|i| (i + 1) as f32)
-        .collect();
+    let weights: Vec<f32> = (0..velocities.len()).map(|i| (i + 1) as f32).collect();
     let total_weight: f32 = weights.iter().sum();
 
     let weighted_sum: Vector3<f32> = velocities
         .iter()
         .zip(weights.iter())
-        .map(|(v, w)| v * w)
+        .map(|(v, w)| v * *w)
         .fold(Vector3::zeros(), |acc, v| acc + v);
 
     weighted_sum / total_weight
@@ -160,9 +153,7 @@ fn benchmark_gps_velocity_computation(c: &mut Criterion) {
     });
 
     group.bench_function("weighted_avg", |b| {
-        b.iter(|| {
-            black_box(calculate_gps_velocity_weighted(&velocities[..10]))
-        });
+        b.iter(|| black_box(calculate_gps_velocity_weighted(&velocities[..10])));
     });
 
     group.finish();
@@ -174,9 +165,7 @@ fn benchmark_imu_update(c: &mut Criterion) {
     let dt = 1.0 / 200.0; // 200 Hz IMU
 
     c.bench_function("imu_sensor_update", |b| {
-        b.iter(|| {
-            black_box(simulate_imu_update(accel, gyro, dt))
-        });
+        b.iter(|| black_box(simulate_imu_update(accel, gyro, dt)));
     });
 }
 
@@ -193,9 +182,7 @@ fn benchmark_force_torque_update(c: &mut Criterion) {
     let sensor_frame = vector![0.0, 0.0, 0.0];
 
     c.bench_function("force_torque_sensor_update", |b| {
-        b.iter(|| {
-            black_box(simulate_force_torque_update(&contact_points, sensor_frame))
-        });
+        b.iter(|| black_box(simulate_force_torque_update(&contact_points, sensor_frame)));
     });
 }
 

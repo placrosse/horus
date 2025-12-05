@@ -98,7 +98,7 @@ fn main() -> Result<()> {
 ### Basic Object Detection
 
 ```rust
-use horus_library::messages::{Detection, DetectionArray};
+use horus::prelude::*; // Provides {Detection, DetectionArray};
 
 let detections_hub = Hub::<DetectionArray>::new("vision.detections")?;
 

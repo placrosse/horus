@@ -118,7 +118,7 @@ let config = LLMConfig::anthropic_claude_haiku();
 ### Voice Command Processing
 
 ```rust
-use horus_library::messages::ml::{LLMRequest, LLMResponse};
+use horus::prelude::*; // Provides ml::{LLMRequest, LLMResponse};
 
 struct VoiceCommandNode {
     prompt_pub: Hub<LLMRequest>,

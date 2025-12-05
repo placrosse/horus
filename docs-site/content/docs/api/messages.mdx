@@ -9,7 +9,7 @@ order: 2
 Standard message types for robotics communication. All messages are designed for zero-copy shared memory transport.
 
 ```rust
-use horus_library::messages::*;
+use horus::prelude::*; // Provides *;
 ```
 
 ---
@@ -576,3 +576,22 @@ All message types are optimized for shared memory transport:
 | `GenericMessage` | ~4.5 KB | Fixed-size for safety |
 
 For best performance, prefer typed messages over `GenericMessage` when possible.
+
+---
+
+## Detailed Message Documentation
+
+For comprehensive documentation of specialized message types, see:
+
+| Category | Description |
+|----------|-------------|
+| [Vision Messages](/api/vision-messages) | Image, CameraInfo, Detection, CompressedImage |
+| [Perception Messages](/api/perception-messages) | PointCloud, DepthImage, BoundingBox3D, PlaneDetection |
+| [Control Messages](/api/control-messages) | MotorCommand, ServoCommand, PwmCommand, PidConfig, JointCommand |
+| [Force & Tactile Messages](/api/force-messages) | WrenchStamped, TactileArray, ImpedanceParameters, ForceCommand |
+| [I/O & Industrial Messages](/api/io-messages) | DigitalIO, AnalogIO, SPI, I2C, CAN, Modbus, Serial |
+| [ML Messages](/api/ml-messages) | Tensor, Predictions, Detection, Pose estimation, LLM |
+| [Navigation Messages](/api/navigation-messages) | Goal, Path, OccupancyGrid, CostMap, VelocityObstacle |
+| [Coordination Messages](/api/coordination-messages) | RobotState, FleetStatus, TaskAssignment, FormationControl |
+| [Diagnostics Messages](/api/diagnostics-messages) | Heartbeat, Status, EmergencyStop, ResourceUsage, SafetyStatus |
+| [TensorPool API](/api/tensor-pool) | Zero-copy tensor memory management for CPU/GPU |

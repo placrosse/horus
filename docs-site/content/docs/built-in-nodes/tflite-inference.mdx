@@ -120,7 +120,7 @@ let config = TFLiteConfig {
 ### Image Classification on Raspberry Pi
 
 ```rust
-use horus_library::messages::ml::Predictions;
+use horus::prelude::*; // Provides ml::Predictions;
 
 // Optimized for Raspberry Pi 4
 let config = TFLiteConfig {

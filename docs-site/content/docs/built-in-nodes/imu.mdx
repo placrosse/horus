@@ -28,8 +28,8 @@ Inertial Measurement Unit (IMU) node supporting MPU6050, BNO055, ICM20948, and o
 
 ```rust
 use horus_library::nodes::{ImuNode, ImuBackend};
-use horus_library::Imu;
-use horus_core::{Scheduler, Hub};
+use horus::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut scheduler = Scheduler::new();
@@ -50,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 // Subscribe to IMU data in another node:
 let imu_hub = Hub::<Imu>::new("imu")?;
-if let Some(data) = imu_hub.recv_latest() {
+if let Some(data) = imu_hub.recv(&mut ctx) {
     println!("Angular velocity: [{:.2}, {:.2}, {:.2}] rad/s",
         data.angular_velocity[0], data.angular_velocity[1], data.angular_velocity[2]);
 }
@@ -247,7 +247,7 @@ if let Some(data) = hub.recv(&mut None) {
 ```rust
 use horus_library::nodes::ImuNode;
 use horus_library::{Imu, Quaternion};
-use horus_core::{Node, Scheduler, Hub, NodeInfo};
+use horus::prelude::*;
 use std::f64::consts::PI;
 
 struct OrientationMonitor {
@@ -268,7 +268,7 @@ impl Node for OrientationMonitor {
     }
 
     fn tick(&mut self, ctx: Option<&mut NodeInfo>) {
-        if let Some(imu_data) = self.imu_sub.recv_latest() {
+        if let Some(imu_data) = self.imu_sub.recv(&mut ctx) {
             if imu_data.has_orientation() {
                 // Convert quaternion to Euler angles
                 let q = Quaternion::new(
@@ -306,7 +306,7 @@ impl Node for MotionDetector {
     fn name(&self) -> &'static str { "MotionDetector" }
 
     fn tick(&mut self, ctx: Option<&mut NodeInfo>) {
-        if let Some(imu_data) = self.imu_sub.recv_latest() {
+        if let Some(imu_data) = self.imu_sub.recv(&mut ctx) {
             // Calculate angular velocity magnitude
             let angular_mag = (
                 imu_data.angular_velocity[0].powi(2) +

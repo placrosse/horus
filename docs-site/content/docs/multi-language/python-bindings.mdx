@@ -1008,7 +1008,7 @@ cmd_hub.send(CmdVel(linear=1.0, angular=0.5))
 ```rust
 // Rust node receives
 use horus::prelude::*;
-use horus_library::messages::cmd_vel::CmdVel;
+use horus::prelude::*; // Provides cmd_vel::CmdVel;
 
 let hub = Hub::<CmdVel>::new("cmdvel")?;
 if let Some(cmd) = hub.recv(&mut None) {

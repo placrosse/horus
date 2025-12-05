@@ -80,7 +80,7 @@ The safety monitor provides comprehensive runtime protection:
 ### Adding RT Nodes
 
 ```rust
-use horus_core::Scheduler;
+use horus::prelude::*;
 use std::time::Duration;
 
 let mut scheduler = Scheduler::new();
@@ -104,7 +104,7 @@ scheduler.run();
 For medical or aerospace applications:
 
 ```rust
-use horus_core::scheduling::SchedulerConfig;
+use horus::prelude::*;
 
 let mut scheduler = Scheduler::new();
 

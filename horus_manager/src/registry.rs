@@ -1080,10 +1080,15 @@ impl RegistryClient {
         println!("\n{}", "[#] Package Metadata (optional)".cyan().bold());
         println!("   Help users discover and use your package by adding:");
 
-        let (docs_url, docs_type, source_url, categories) = prompt_package_metadata(current_dir)?;
+        let (docs_url, docs_type, source_url, categories, package_type) =
+            prompt_package_metadata(current_dir)?;
 
-        // If user provided docs, source, or categories, update the package
-        if !docs_url.is_empty() || !source_url.is_empty() || !categories.is_empty() {
+        // If user provided docs, source, categories, or package_type, update the package
+        if !docs_url.is_empty()
+            || !source_url.is_empty()
+            || !categories.is_empty()
+            || !package_type.is_empty()
+        {
             println!("\n{} Updating package metadata...", "".cyan());
             self.update_package_metadata(
                 &name,
@@ -1092,6 +1097,7 @@ impl RegistryClient {
                 &docs_type,
                 &source_url,
                 &categories,
+                &package_type,
                 &api_key,
             )?;
             println!(" Package metadata updated!");
@@ -1100,7 +1106,7 @@ impl RegistryClient {
         Ok(())
     }
 
-    // Update package metadata (docs/source URLs and categories)
+    // Update package metadata (docs/source URLs, categories, and package_type)
     #[allow(clippy::too_many_arguments)]
     fn update_package_metadata(
         &self,
@@ -1110,6 +1116,7 @@ impl RegistryClient {
         docs_type: &str,
         source_url: &str,
         categories: &str,
+        package_type: &str,
         api_key: &str,
     ) -> Result<()> {
         let mut form = reqwest::blocking::multipart::Form::new()
@@ -1120,6 +1127,11 @@ impl RegistryClient {
         // Add categories if provided
         if !categories.is_empty() {
             form = form.text("categories", categories.to_string());
+        }
+
+        // Add package_type if provided
+        if !package_type.is_empty() {
+            form = form.text("package_type", package_type.to_string());
         }
 
         let response = self
@@ -1919,14 +1931,15 @@ fn get_api_key() -> Result<String> {
     Ok(api_key.to_string())
 }
 
-// Interactive prompts for package documentation, source URLs, and categories
-fn prompt_package_metadata(dir: &Path) -> Result<(String, String, String, String)> {
+// Interactive prompts for package documentation, source URLs, categories, and package type
+fn prompt_package_metadata(dir: &Path) -> Result<(String, String, String, String, String)> {
     use std::io::{self, Write};
 
     let mut docs_url = String::new();
     let mut docs_type = String::new();
     let mut source_url = String::new();
     let mut categories = String::new();
+    let mut package_type = String::new();
 
     // Check if /docs folder exists with .md files
     let docs_dir = dir.join("docs");
@@ -2181,7 +2194,65 @@ fn prompt_package_metadata(dir: &Path) -> Result<(String, String, String, String
         }
     }
 
-    Ok((docs_url, docs_type, source_url, categories))
+    // 4. Package Type prompt
+    println!("\n{}", "Package Type".cyan().bold());
+    println!("   {} What type of package is this?", "[i]".blue());
+    println!("   Available types:");
+    println!(
+        "     {} node       - HORUS node that processes data (pub/sub)",
+        "1.".cyan()
+    );
+    println!(
+        "     {} driver     - Hardware driver (sensors, actuators)",
+        "2.".cyan()
+    );
+    println!("     {} tool       - CLI tool or utility", "3.".cyan());
+    println!(
+        "     {} algorithm  - Reusable algorithm implementation",
+        "4.".cyan()
+    );
+    println!(
+        "     {} model      - AI/ML model (ONNX, TensorFlow, etc.)",
+        "5.".cyan()
+    );
+    println!("     {} message    - Message type definitions", "6.".cyan());
+    println!(
+        "     {} app        - Complete multi-node application",
+        "7.".cyan()
+    );
+    print!("\n   Select package type (1-7) or skip for default [node]: ");
+    io::stdout().flush()?;
+
+    let mut type_input = String::new();
+    io::stdin().read_line(&mut type_input)?;
+    let type_input = type_input.trim();
+
+    if !type_input.is_empty() {
+        let type_map = [
+            "node",
+            "driver",
+            "tool",
+            "algorithm",
+            "model",
+            "message",
+            "app",
+        ];
+
+        if let Ok(num) = type_input.parse::<usize>() {
+            if num > 0 && num <= type_map.len() {
+                package_type = type_map[num - 1].to_string();
+                println!("   {} Package type: {}", "".green(), package_type);
+            }
+        }
+    }
+
+    // Default to "node" if not specified
+    if package_type.is_empty() {
+        package_type = "node".to_string();
+        println!("   {} Using default package type: node", "".blue());
+    }
+
+    Ok((docs_url, docs_type, source_url, categories, package_type))
 }
 
 // Implement PackageProvider trait for RegistryClient to enable dependency resolution

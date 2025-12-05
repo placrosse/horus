@@ -62,7 +62,9 @@ use systems::sensor_update::{SensorSystemSet, SensorUpdatePlugin};
 // Import all plugins for integration
 use gpu::GPUAccelerationPlugin;
 use horus_bridge::{
-    core_integration::HorusCorePlugin, horus_transport::HorusTransportPlugin, HorusBridgePlugin,
+    core_integration::HorusCorePlugin,
+    horus_transport::{HorusTransportConfig, HorusTransportPlugin},
+    HorusBridgePlugin, HorusTransportSyncPlugin, Sim3dNodePlugin,
 };
 use multi_robot::MultiRobotPlugin;
 use physics::soft_body::SoftBodyPlugin;
@@ -215,10 +217,19 @@ fn run_visual_mode(cli: Cli) {
 
     // === INTEGRATED PLUGINS ===
 
+    // Configure HORUS transport with CLI args (session ID and robot name)
+    let transport_config = HorusTransportConfig {
+        session_id: cli.session.clone(),
+        robot_name: cli.robot_name.clone(),
+        ..Default::default()
+    };
+
     // Core system plugins
     app.add_plugins(HorusBridgePlugin::default());
     app.add_plugins(HorusCorePlugin);
-    app.add_plugins(HorusTransportPlugin::default());
+    app.add_plugins(HorusTransportPlugin::with_config(transport_config));
+    app.add_plugins(HorusTransportSyncPlugin); // Wires publisher buffer to HORUS IPC
+    app.add_plugins(Sim3dNodePlugin::with_robot_name(&cli.robot_name)); // HORUS Node integration
     app.add_plugins(HorusSyncPlugin);
     app.add_plugins(HFrameUpdatePlugin);
 
@@ -348,6 +359,14 @@ fn run_visual_mode(cli: Cli) {
 fn run_headless_mode(cli: Cli) {
     info!("Starting headless mode for RL training");
 
+    // Extract HORUS config from CLI before it's moved into the app
+    let transport_config = HorusTransportConfig {
+        session_id: cli.session.clone(),
+        robot_name: cli.robot_name.clone(),
+        ..Default::default()
+    };
+    let robot_name = cli.robot_name.clone();
+
     let mut app = App::new();
 
     // Use minimal plugins (no rendering, no input, no audio)
@@ -384,7 +403,9 @@ fn run_headless_mode(cli: Cli) {
     // Core system plugins
     app.add_plugins(HorusBridgePlugin::default());
     app.add_plugins(HorusCorePlugin);
-    app.add_plugins(HorusTransportPlugin::default());
+    app.add_plugins(HorusTransportPlugin::with_config(transport_config));
+    app.add_plugins(HorusTransportSyncPlugin); // Wires publisher buffer to HORUS IPC
+    app.add_plugins(Sim3dNodePlugin::with_robot_name(&robot_name)); // HORUS Node integration
     app.add_plugins(HorusSyncPlugin);
     app.add_plugins(HFrameUpdatePlugin);
 

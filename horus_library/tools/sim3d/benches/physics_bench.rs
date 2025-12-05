@@ -50,11 +50,7 @@ fn create_physics_world() -> (
 }
 
 /// Add N rigid bodies to the physics world
-fn populate_world(
-    rigid_body_set: &mut RigidBodySet,
-    collider_set: &mut ColliderSet,
-    count: usize,
-) {
+fn populate_world(rigid_body_set: &mut RigidBodySet, collider_set: &mut ColliderSet, count: usize) {
     for i in 0..count {
         // Create a dynamic rigid body at random positions
         let x = (i % 10) as f32 * 2.0;
@@ -132,8 +128,8 @@ fn benchmark_collision_detection(c: &mut Criterion) {
         mut collider_set,
         _physics_pipeline,
         _island_manager,
-        mut broad_phase,
-        mut narrow_phase,
+        _broad_phase,
+        _narrow_phase,
         _impulse_joint_set,
         _multibody_joint_set,
         _ccd_solver,
@@ -149,11 +145,22 @@ fn benchmark_collision_detection(c: &mut Criterion) {
 
     c.bench_function("collision_detection_100_bodies", |b| {
         b.iter(|| {
-            // Update broad phase
-            broad_phase.update(&rigid_body_set, &collider_set);
+            // Update query pipeline
+            query_pipeline.update(&collider_set);
 
-            // Update narrow phase
-            narrow_phase.find_intersections(&broad_phase, &collider_set, &mut |_| {});
+            // Test collision detection via intersection test
+            let shape = rapier3d::prelude::Ball::new(1.0);
+            let shape_pos = Isometry::translation(0.0, 5.0, 0.0);
+            let filter = QueryFilter::default();
+
+            query_pipeline.intersections_with_shape(
+                &rigid_body_set,
+                &collider_set,
+                &shape_pos,
+                &shape,
+                filter,
+                |_handle| true, // Continue callback
+            );
 
             black_box(())
         });
@@ -225,8 +232,8 @@ fn benchmark_force_application(c: &mut Criterion) {
         b.iter(|| {
             for handle in &handles {
                 if let Some(rb) = rigid_body_set.get_mut(*handle) {
-                    rb.apply_force(vector![0.0, 10.0, 0.0], true);
-                    rb.apply_torque(vector![0.1, 0.0, 0.0], true);
+                    rb.add_force(vector![0.0, 10.0, 0.0], true);
+                    rb.add_torque(vector![0.1, 0.0, 0.0], true);
                 }
             }
             black_box(())
@@ -249,7 +256,14 @@ fn benchmark_raycast(c: &mut Criterion) {
             let solid = true;
             let filter = QueryFilter::default();
 
-            let hit = query_pipeline.cast_ray(&rigid_body_set, &collider_set, &ray, max_toi, solid, filter);
+            let hit = query_pipeline.cast_ray(
+                &rigid_body_set,
+                &collider_set,
+                &ray,
+                max_toi,
+                solid,
+                filter,
+            );
             black_box(hit)
         });
     });
@@ -282,7 +296,14 @@ fn benchmark_raycast_batch(c: &mut Criterion) {
                     let mut hits = 0;
                     for ray in &rays {
                         if query_pipeline
-                            .cast_ray(&rigid_body_set, &collider_set, ray, 100.0, true, QueryFilter::default())
+                            .cast_ray(
+                                &rigid_body_set,
+                                &collider_set,
+                                ray,
+                                100.0,
+                                true,
+                                QueryFilter::default(),
+                            )
                             .is_some()
                         {
                             hits += 1;

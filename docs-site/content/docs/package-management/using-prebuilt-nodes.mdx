@@ -74,7 +74,7 @@ horus pkg list motor
 The `horus_library` crate includes common nodes:
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 // Sensor nodes
 CameraNode, LidarNode, ImuNode
@@ -274,7 +274,7 @@ fn main() {
 ### Vision Processing Pipeline
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 fn main() {
     let mut scheduler = Scheduler::new();

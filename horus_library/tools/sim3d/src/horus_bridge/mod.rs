@@ -2,7 +2,9 @@ pub mod core_integration;
 pub mod horus_transport;
 pub mod messages;
 pub mod publisher;
+pub mod sim3d_node;
 pub mod subscriber;
+pub mod transport_sync;
 
 use bevy::prelude::*;
 use std::sync::{Arc, Mutex};
@@ -11,7 +13,9 @@ pub use messages::*;
 pub use publisher::{
     publish_hframe_system, publish_lidar2d_system, publish_lidar3d_system, HorusPublisher,
 };
+pub use sim3d_node::{Sim3dNode, Sim3dNodeHandle, Sim3dNodePlugin, Sim3dNodeState};
 pub use subscriber::{apply_cmd_vel_system, handle_robot_commands_system, HorusSubscriber};
+pub use transport_sync::HorusTransportSyncPlugin;
 
 /// Configuration for the HORUS bridge
 #[derive(Resource, Clone)]

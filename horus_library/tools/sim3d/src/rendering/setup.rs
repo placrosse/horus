@@ -5,6 +5,7 @@ use crate::physics::diff_drive::CmdVel;
 use crate::physics::PhysicsWorld;
 use crate::rendering::camera_controller::OrbitCamera;
 use crate::robot::urdf_loader::URDFLoader;
+use crate::robot::xacro_loader::XacroPreprocessor;
 use crate::scene::loader::SceneLoader;
 use crate::scene::spawner::{ObjectSpawnConfig, ObjectSpawner, SpawnShape, SpawnedObjects};
 use bevy::prelude::*;
@@ -106,8 +107,8 @@ pub fn setup_scene(
             .to_lowercase();
 
         match extension.as_str() {
-            "urdf" | "xacro" => {
-                // Load URDF/Xacro robot file
+            "urdf" => {
+                // Load URDF robot file directly
                 let mut urdf_loader = URDFLoader::new().with_base_path(base_path);
                 match urdf_loader.load(
                     robot_file,
@@ -123,6 +124,50 @@ pub fn setup_scene(
                     }
                     Err(e) => {
                         error!("Failed to load robot from URDF: {}", e);
+                        warn!("Falling back to default robot");
+                        spawn_default_robot(
+                            &mut commands,
+                            &mut meshes,
+                            &mut materials,
+                            &mut physics_world,
+                            &mut spawned_objects,
+                        );
+                    }
+                }
+            }
+            "xacro" => {
+                // Preprocess Xacro to URDF first, then load
+                let mut preprocessor = XacroPreprocessor::new();
+                match preprocessor.process_to_temp_file(robot_file) {
+                    Ok(urdf_temp_path) => {
+                        let mut urdf_loader = URDFLoader::new().with_base_path(base_path);
+                        match urdf_loader.load(
+                            &urdf_temp_path,
+                            &mut commands,
+                            &mut physics_world,
+                            &mut hframe_tree,
+                            &mut meshes,
+                            &mut materials,
+                        ) {
+                            Ok(robot_entity) => {
+                                spawned_objects.add(robot_entity);
+                                info!("Successfully loaded robot from Xacro: {:?}", robot_path);
+                            }
+                            Err(e) => {
+                                error!("Failed to load robot from processed Xacro: {}", e);
+                                warn!("Falling back to default robot");
+                                spawn_default_robot(
+                                    &mut commands,
+                                    &mut meshes,
+                                    &mut materials,
+                                    &mut physics_world,
+                                    &mut spawned_objects,
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to process Xacro file: {}", e);
                         warn!("Falling back to default robot");
                         spawn_default_robot(
                             &mut commands,

@@ -90,7 +90,7 @@ while True:
 ```rust
 // Rust subscriber (in another process)
 use horus::prelude::*;
-use horus_library::messages::geometry::Pose2D;
+use horus::prelude::*; // Provides geometry::Pose2D;
 
 let hub = Hub::<Pose2D>::new("pose2d")?;
 if let Some(pose) = hub.recv(&mut None) {
@@ -203,7 +203,7 @@ horus.run(node)
 ```rust
 // planner.rs - Rust planning node
 use horus::prelude::*;
-use horus_library::messages::{sensor::LaserScan, cmd_vel::CmdVel};
+use horus::prelude::*; // Provides {sensor::LaserScan, cmd_vel::CmdVel};
 
 fn main() -> Result<()> {
     let scan_hub = Hub::<LaserScan>::new("lidar")?;

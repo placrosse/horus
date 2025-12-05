@@ -105,6 +105,13 @@ robots:
     # Wheel radius is 0.04m, so base_link at Y=0.04 puts wheels on ground
     position: [0.0, 0.05, 0.0]
     rotation_euler: [0.0, 0.0, 0.0]
+    # Differential drive configuration for velocity control
+    # These values match the URDF wheel parameters
+    diff_drive:
+      wheel_separation: 0.17   # Distance between left and right wheels (meters)
+      wheel_radius: 0.04       # Radius of drive wheels (meters)
+      max_linear_velocity: 0.5 # Maximum forward/backward speed (m/s)
+      max_angular_velocity: 2.0 # Maximum rotation speed (rad/s)
 
 lighting:
   ambient: [0.6, 0.7, 0.9]

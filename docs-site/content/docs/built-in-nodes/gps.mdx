@@ -27,7 +27,7 @@ GPS/GNSS satellite navigation receiver for positioning, navigation, and time syn
 
 ```rust
 use horus_library::nodes::{GpsNode, GpsBackend};
-use horus_core::Scheduler;
+use horus::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut scheduler = Scheduler::new();
@@ -231,7 +231,7 @@ Common baud rates:
 ### Position Monitoring
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 use horus_library::NavSatFix;
 
 struct PositionMonitor {
@@ -250,7 +250,7 @@ impl Node for PositionMonitor {
     fn name(&self) -> &'static str { "PositionMonitor" }
 
     fn tick(&mut self, ctx: Option<&mut NodeInfo>) {
-        if let Some(fix) = self.gps_sub.recv_latest() {
+        if let Some(fix) = self.gps_sub.recv(&mut ctx) {
             if fix.has_fix() && fix.is_valid() {
                 if let Some(ctx) = ctx {
                     ctx.log_info(&format!(
@@ -271,7 +271,7 @@ impl Node for PositionMonitor {
 ### Geo-Fencing
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 use horus_library::NavSatFix;
 
 struct GeofenceMonitor {
@@ -296,7 +296,7 @@ impl Node for GeofenceMonitor {
     fn name(&self) -> &'static str { "GeofenceMonitor" }
 
     fn tick(&mut self, ctx: Option<&mut NodeInfo>) {
-        if let Some(fix) = self.gps_sub.recv_latest() {
+        if let Some(fix) = self.gps_sub.recv(&mut ctx) {
             if fix.has_fix() && fix.is_valid() {
                 // Create home position fix for distance calculation
                 let home = NavSatFix::from_coordinates(self.home_lat, self.home_lon, 0.0);
@@ -324,7 +324,7 @@ impl Node for GeofenceMonitor {
 ### Speed and Heading Tracking
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 use horus_library::NavSatFix;
 
 struct VelocityTracker {
@@ -335,7 +335,7 @@ impl Node for VelocityTracker {
     fn name(&self) -> &'static str { "VelocityTracker" }
 
     fn tick(&mut self, ctx: Option<&mut NodeInfo>) {
-        if let Some(fix) = self.gps_sub.recv_latest() {
+        if let Some(fix) = self.gps_sub.recv(&mut ctx) {
             if fix.has_fix() && fix.is_valid() {
                 // Convert m/s to km/h
                 let speed_kmh = fix.speed * 3.6;

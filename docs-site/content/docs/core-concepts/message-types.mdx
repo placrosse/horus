@@ -45,7 +45,7 @@ HORUS supports two fundamentally different approaches to messaging, each with di
 ```rust
 // Rust - Typed message
 use horus::prelude::*;
-use horus_library::messages::Pose2D;
+use horus::prelude::*; // Provides Pose2D;
 
 let hub: Hub<Pose2D> = Hub::new("robot.pose")?;
 hub.send(Pose2D::new(1.0, 2.0, 0.5), &mut ctx)?;
@@ -106,7 +106,7 @@ node.send("custom_data", {
 ```rust
 // Rust - GenericMessage
 use horus::prelude::*;
-use horus_library::messages::GenericMessage;
+use horus::prelude::*; // Provides GenericMessage;
 
 let hub: Hub<GenericMessage> = Hub::new("custom_data")?;
 let data = GenericMessage::from_value(&my_dynamic_data)?;
@@ -433,7 +433,7 @@ Spatial primitives for representing position, orientation, and motion.
 3D velocity command with linear and angular components:
 
 ```rust
-use horus_library::messages::Twist;
+use horus::prelude::*; // Provides Twist;
 
 // Create 2D twist (common for mobile robots)
 let cmd = Twist::new_2d(1.0, 0.5);  // 1.0 m/s forward, 0.5 rad/s rotation
@@ -461,7 +461,7 @@ assert!(cmd.is_valid());
 2D position and orientation for planar robots:
 
 ```rust
-use horus_library::messages::Pose2D;
+use horus::prelude::*; // Provides Pose2D;
 
 // Create pose
 let pose = Pose2D::new(1.0, 2.0, 0.5);  // x=1m, y=2m, theta=0.5rad
@@ -488,7 +488,7 @@ pose.normalize_angle();
 3D transformation with translation and rotation:
 
 ```rust
-use horus_library::messages::Transform;
+use horus::prelude::*; // Provides Transform;
 
 // Identity transform
 let identity = Transform::identity();
@@ -518,7 +518,7 @@ tf.normalize_rotation();
 3D points and vectors:
 
 ```rust
-use horus_library::messages::{Point3, Vector3};
+use horus::prelude::*; // Provides {Point3, Vector3};
 
 // Create point
 let point = Point3::new(1.0, 2.0, 3.0);
@@ -539,7 +539,7 @@ let cross_product = vec.cross(&Vector3::new(0.0, 1.0, 0.0));
 3D rotation representation:
 
 ```rust
-use horus_library::messages::Quaternion;
+use horus::prelude::*; // Provides Quaternion;
 
 // Identity quaternion (no rotation)
 let q = Quaternion::identity();
@@ -561,7 +561,7 @@ Standard sensor data formats for common robotics sensors.
 2D lidar scan data (up to 360 points):
 
 ```rust
-use horus_library::messages::LaserScan;
+use horus::prelude::*; // Provides LaserScan;
 
 let mut scan = LaserScan::new();
 
@@ -606,7 +606,7 @@ if let Some(min) = scan.min_range() {
 Inertial Measurement Unit data:
 
 ```rust
-use horus_library::messages::Imu;
+use horus::prelude::*; // Provides Imu;
 
 let mut imu = Imu::new();
 
@@ -650,7 +650,7 @@ let linear_accel = imu.linear_acceleration_vec();
 Combined pose and velocity from wheel encoders or visual odometry:
 
 ```rust
-use horus_library::messages::{Odometry, Pose2D, Twist};
+use horus::prelude::*; // Provides {Odometry, Pose2D, Twist};
 
 let mut odom = Odometry::new();
 
@@ -684,7 +684,7 @@ assert!(odom.is_valid());
 Single-point distance sensor (ultrasonic, infrared):
 
 ```rust
-use horus_library::messages::Range;
+use horus::prelude::*; // Provides Range;
 
 // Create ultrasonic range reading
 let range = Range::new(Range::ULTRASONIC, 1.5);  // 1.5 meters
@@ -714,7 +714,7 @@ if range.is_valid() {
 Battery status and charge information:
 
 ```rust
-use horus_library::messages::BatteryState;
+use horus::prelude::*; // Provides BatteryState;
 
 let mut battery = BatteryState::new(12.6, 75.0);  // 12.6V, 75% charge
 
@@ -761,7 +761,7 @@ Actuator commands and control parameters (from horus_library).
 Basic velocity command for robot control:
 
 ```rust
-use horus_library::messages::CmdVel;
+use horus::prelude::*; // Provides CmdVel;
 
 // Create command
 let cmd = CmdVel::new(1.0, 0.5);  // 1.0 m/s forward, 0.5 rad/s rotation
@@ -1002,7 +1002,7 @@ pub struct VerboseCmdVel {
 
 ```rust
 use horus::prelude::*;
-use horus_library::messages::LaserScan;
+use horus::prelude::*; // Provides LaserScan;
 
 struct LidarNode {
     scan_pub: Hub<LaserScan>,
@@ -1023,7 +1023,7 @@ impl Node for LidarNode {
 
 ```rust
 use horus::prelude::*;
-use horus_library::messages::LaserScan;
+use horus::prelude::*; // Provides LaserScan;
 
 struct ObstacleDetector {
     scan_sub: Hub<LaserScan>,
@@ -1059,7 +1059,7 @@ Here's the essential pattern for using messages in your nodes:
 **Publishing a message:**
 ```rust
 use horus::prelude::*;
-use horus_library::messages::CmdVel;
+use horus::prelude::*; // Provides CmdVel;
 
 struct Publisher {
     cmd_pub: Hub<CmdVel>,

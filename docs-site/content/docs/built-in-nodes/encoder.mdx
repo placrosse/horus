@@ -14,35 +14,32 @@ Quadrature encoder node for reading rotary encoders on motors and wheels. Provid
 
 ## Features
 
-- Quadrature encoder support (AB phase)
-- Up to 8 encoders
-- Position counting (32-bit)
+- Quadrature encoder support (AB phase via GPIO)
+- Position counting (64-bit)
 - Velocity calculation
 - Direction detection
-- Configurable CPR (counts per revolution)
-- Index pulse support (Z channel)
-- Hardware interrupts for accuracy
-- Simulation fallback
+- Configurable resolution, wheel radius, and gear ratio
+- Hardware GPIO backend with simulation fallback
+- Builder pattern with hybrid processor support
 
 ## Quick Start
 
 ```rust
 use horus_library::nodes::EncoderNode;
-use horus_library::Odometry;
-use horus_core::{Scheduler, Hub};
+use horus::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut scheduler = Scheduler::new();
 
-    // Create encoder node for differential drive robot
+    // Create encoder node
     let mut encoder = EncoderNode::new()?;
-    encoder.set_ticks_per_revolution(4096);  // Encoder resolution
-    encoder.set_wheel_radius(0.05);          // 5cm wheel radius
-    encoder.set_wheel_base(0.3);             // 30cm between wheels
 
-    // Configure GPIO pins (Raspberry Pi)
-    encoder.set_left_encoder_pins(17, 27);   // A/B channels
-    encoder.set_right_encoder_pins(22, 23);
+    // Configure encoder (resolution, wheel_radius, gear_ratio)
+    encoder.set_encoder_config(4096.0, 0.05, 1.0);
+
+    // Configure GPIO pins for quadrature encoder (pin A, pin B)
+    encoder.set_gpio_pins(17, 27);
 
     scheduler.add(Box::new(encoder), 50, Some(true));
     scheduler.run()?;
@@ -51,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 // Subscribe to odometry in another node:
 let odom_hub = Hub::<Odometry>::new("odom")?;
-if let Some(odom) = odom_hub.recv_latest() {
+if let Some(odom) = odom_hub.recv(&mut ctx) {
     println!("Position: ({:.2}, {:.2}), Heading: {:.2}deg",
              odom.pose.x, odom.pose.y, odom.pose.theta.to_degrees());
 }
@@ -164,7 +161,7 @@ Common encoder resolutions:
 
 ```rust
 use horus_library::nodes::EncoderNode;
-use horus_core::{Node, Scheduler};
+use horus::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut scheduler = Scheduler::new();
@@ -192,7 +189,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```rust
 use horus_library::nodes::EncoderNode;
-use horus_core::{Node, Scheduler};
+use horus::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut scheduler = Scheduler::new();
@@ -240,7 +237,7 @@ encoder.set_encoder_config(
 
 ```rust
 use horus_library::nodes::{EncoderNode, PidControllerNode};
-use horus_core::{Node, Scheduler};
+use horus::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut scheduler = Scheduler::new();

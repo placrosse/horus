@@ -113,6 +113,8 @@ pub struct HorusTransportConfig {
     pub network_endpoint: Option<String>,
     /// Robot name prefix for topics
     pub robot_name: String,
+    /// Session ID for HORUS IPC isolation (None = use HORUS_SESSION_ID env var or global)
+    pub session_id: Option<String>,
 }
 
 impl Default for HorusTransportConfig {
@@ -121,7 +123,22 @@ impl Default for HorusTransportConfig {
             enable_network: false,
             network_endpoint: None,
             robot_name: "sim3d_robot".to_string(),
+            session_id: None, // Will check HORUS_SESSION_ID env var
         }
+    }
+}
+
+impl HorusTransportConfig {
+    /// Create config with a specific session ID
+    pub fn with_session(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
+        self
+    }
+
+    /// Create config with robot name
+    pub fn with_robot_name(mut self, robot_name: impl Into<String>) -> Self {
+        self.robot_name = robot_name.into();
+        self
     }
 }
 
@@ -145,6 +162,8 @@ pub struct HorusTransport {
     enabled: bool,
     /// Robot name for topic naming
     robot_name: String,
+    /// Session ID for HORUS IPC isolation
+    session_id: Option<String>,
 }
 
 impl Default for HorusTransport {
@@ -156,6 +175,23 @@ impl Default for HorusTransport {
 impl HorusTransport {
     /// Create a new HORUS transport with default local topics
     pub fn new(robot_name: &str) -> Self {
+        Self::with_session(robot_name, None)
+    }
+
+    /// Create a new HORUS transport with a specific session ID
+    /// If session_id is None, will use HORUS_SESSION_ID env var or global topics
+    pub fn with_session(robot_name: &str, session_id: Option<&str>) -> Self {
+        // Set session ID environment variable if provided
+        // This must be done BEFORE creating Hubs
+        if let Some(sid) = session_id {
+            std::env::set_var("HORUS_SESSION_ID", sid);
+            tracing::info!("HORUS Transport joining session: {}", sid);
+        } else if let Ok(existing_sid) = std::env::var("HORUS_SESSION_ID") {
+            tracing::info!("HORUS Transport using existing session: {}", existing_sid);
+        } else {
+            tracing::info!("HORUS Transport using global topics (no session)");
+        }
+
         let mut transport = Self {
             cmd_vel_hub: None,
             hf_hub: None,
@@ -165,6 +201,7 @@ impl HorusTransport {
             joint_state_hub: None,
             enabled: true,
             robot_name: robot_name.to_string(),
+            session_id: session_id.map(String::from),
         };
 
         // Initialize hubs (log errors but don't fail)
@@ -183,6 +220,7 @@ impl HorusTransport {
             joint_state_hub: None,
             enabled: true,
             robot_name: robot_name.to_string(),
+            session_id: None,
         };
 
         transport.init_network_hubs(endpoint);
@@ -265,6 +303,11 @@ impl HorusTransport {
     /// Get robot name
     pub fn robot_name(&self) -> &str {
         &self.robot_name
+    }
+
+    /// Get the session ID (if any)
+    pub fn session_id(&self) -> Option<&str> {
+        self.session_id.as_deref()
     }
 
     // ========================================================================
@@ -387,6 +430,7 @@ impl HorusTransportPlugin {
                 enable_network: true,
                 network_endpoint: Some(endpoint.into()),
                 robot_name: robot_name.into(),
+                session_id: None,
             },
         }
     }
@@ -398,10 +442,13 @@ impl Plugin for HorusTransportPlugin {
             if let Some(ref endpoint) = self.config.network_endpoint {
                 HorusTransport::with_network(&self.config.robot_name, endpoint)
             } else {
-                HorusTransport::new(&self.config.robot_name)
+                HorusTransport::with_session(
+                    &self.config.robot_name,
+                    self.config.session_id.as_deref(),
+                )
             }
         } else {
-            HorusTransport::new(&self.config.robot_name)
+            HorusTransport::with_session(&self.config.robot_name, self.config.session_id.as_deref())
         };
 
         app.insert_resource(self.config.clone())

@@ -109,7 +109,7 @@ Your robot code works **unchanged** in simulation:
 
 ```rust
 use horus::prelude::*;
-use horus_library::messages::CmdVel;
+use horus::prelude::*; // Provides CmdVel;
 
 struct NavigationNode {
     cmd_pub: Hub<CmdVel>,
@@ -593,6 +593,16 @@ for _ in range(1000):
 | Memory (visual) | &lt;500MB (single robot) |
 | Memory (headless) | &lt;50MB per environment |
 
+### Detailed Sim3D Documentation
+
+For in-depth coverage of specific Sim3D features, see:
+
+| Module | Description |
+|--------|-------------|
+| [Sim3D Editor](/development/sim3d-editor) | Interactive scene editing with gizmos, selection, and property inspection |
+| [Sim3D Recording](/development/sim3d-recording) | Trajectory recording, time control, video export, and sensor data bags |
+| [Sim3D Multi-Robot](/development/sim3d-multi-robot) | Multi-robot simulation with communication, swarm coordination, and formations |
+
 ---
 
 ## Node Simulation Mode
@@ -800,7 +810,7 @@ let scan_sub = Hub::<LaserScan>::new("scan")?;
 **3. Same Message Types:**
 ```rust
 // horus_library/messages - works everywhere
-use horus_library::messages::{CmdVel, LaserScan, Odometry};
+use horus::prelude::*; // Provides {CmdVel, LaserScan, Odometry};
 ```
 
 **4. Physics Accuracy:**

@@ -28,7 +28,7 @@ Proportional-Integral-Derivative (PID) controller node for closed-loop control o
 ```rust
 use horus_library::nodes::PidControllerNode;
 use horus_library::{SetpointCommand, FeedbackValue};
-use horus_core::{Scheduler, Hub};
+use horus::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut scheduler = Scheduler::new();
@@ -160,7 +160,7 @@ let (setpoint, feedback, error, integral) = pid.get_state();
 
 ```rust
 use horus_library::nodes::PidControllerNode;
-use horus_core::{Node, Scheduler};
+use horus::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut scheduler = Scheduler::new();

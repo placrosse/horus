@@ -39,6 +39,15 @@ pub struct Cli {
 
     #[arg(long, default_value_t = 1.0)]
     pub speed: f32,
+
+    /// HORUS session ID to join (uses HORUS_SESSION_ID env var if not specified)
+    /// Topics will be isolated to this session's shared memory namespace
+    #[arg(long)]
+    pub session: Option<String>,
+
+    /// Robot name for HORUS topics (default: sim3d_robot)
+    #[arg(long, default_value = "sim3d_robot")]
+    pub robot_name: String,
 }
 
 /// Subcommands for sim3d

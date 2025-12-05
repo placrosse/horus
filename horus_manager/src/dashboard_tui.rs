@@ -2382,20 +2382,24 @@ fn get_local_workspaces(current_workspace_path: &Option<std::path::PathBuf>) -> 
         if packages_dir.exists() {
             if let Ok(pkg_entries) = fs::read_dir(&packages_dir) {
                 for pkg_entry in pkg_entries.flatten() {
-                    // Check if it's a directory OR a symlink pointing to a directory
-                    let is_pkg_dir = pkg_entry.file_type().map(|t| t.is_dir()).unwrap_or(false)
-                        || (pkg_entry
-                            .file_type()
-                            .map(|t| t.is_symlink())
-                            .unwrap_or(false)
-                            && pkg_entry.path().is_dir());
+                    // Check if it's a directory OR a symlink (include broken symlinks to show them)
+                    let file_type = pkg_entry.file_type().ok();
+                    let is_dir = file_type.as_ref().map(|t| t.is_dir()).unwrap_or(false);
+                    let is_symlink = file_type.as_ref().map(|t| t.is_symlink()).unwrap_or(false);
+                    let is_pkg_entry = is_dir || is_symlink;
 
-                    if is_pkg_dir {
+                    if is_pkg_entry {
                         let pkg_name = pkg_entry.file_name().to_string_lossy().to_string();
+                        let pkg_path = pkg_entry.path();
 
-                        // Try to get version from metadata.json
-                        let metadata_path = pkg_entry.path().join("metadata.json");
-                        let version = if metadata_path.exists() {
+                        // Check if symlink target exists (for broken symlink detection)
+                        let symlink_broken = is_symlink && !pkg_path.exists();
+
+                        // Try to get version from metadata.json (follow symlinks if valid)
+                        let metadata_path = pkg_path.join("metadata.json");
+                        let version = if symlink_broken {
+                            "broken link".to_string()
+                        } else if metadata_path.exists() {
                             fs::read_to_string(&metadata_path)
                                 .ok()
                                 .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
@@ -2544,12 +2548,14 @@ fn get_installed_packages() -> InstalledPackages {
     let mut global_packages = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
-    // Check local .horus/cache first (project-specific)
-    let local_cache = std::env::current_dir().ok().map(|d| d.join(".horus/cache"));
+    // Check local .horus/packages first (project-specific installed packages)
+    let local_packages_dir = std::env::current_dir()
+        .ok()
+        .map(|d| d.join(".horus/packages"));
 
-    if let Some(ref cache_dir) = local_cache {
-        if cache_dir.exists() {
-            if let Ok(entries) = std::fs::read_dir(cache_dir) {
+    if let Some(ref packages_dir) = local_packages_dir {
+        if packages_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(packages_dir) {
                 for entry in entries.flatten() {
                     if let Some(name) = entry.file_name().to_str() {
                         if seen.insert(name.to_string()) {

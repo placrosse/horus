@@ -27,7 +27,7 @@ High-performance stepper motor controller with support for up to 8 motors, micro
 ## Quick Start
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<()> {
     let mut scheduler = Scheduler::new();
@@ -197,7 +197,7 @@ stepper.set_feedback_enabled(true);
 ### Position Control
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 // Create position command
 let mut cmd = StepperCommand {
@@ -309,7 +309,7 @@ stepper.set_acceleration(0, 5000.0);      // Accel at 5000 steps/sec²
 ## Complete Example: CNC System
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<()> {
     let mut scheduler = Scheduler::new();

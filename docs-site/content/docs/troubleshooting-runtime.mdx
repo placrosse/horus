@@ -292,7 +292,7 @@ horus_library = "0.1"  # For standard messages
 Import the prelude:
 ```rust
 use horus::prelude::*;
-use horus_library::messages::*;  // For CmdVel, LaserScan, etc.
+use horus::prelude::*; // Provides *;  // For CmdVel, LaserScan, etc.
 ```
 
 ### Error: "trait bound ... is not satisfied"

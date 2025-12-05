@@ -9,7 +9,7 @@ order: 1
 The core runtime crate for the HORUS robotics framework. Provides the fundamental building blocks for creating distributed real-time robotics systems.
 
 ```rust
-use horus_core::{Node, NodeInfo, Hub, Scheduler, HorusResult};
+use horus::prelude::*;
 ```
 
 ---
@@ -137,7 +137,7 @@ Called when an error occurs during tick execution.
 ### Example Implementation
 
 ```rust
-use horus_core::{Node, NodeInfo, Hub, HorusResult};
+use horus::prelude::*;
 
 struct TemperatureSensor {
     publisher: Hub<f32>,
@@ -746,7 +746,7 @@ Locks all memory pages to prevent page faults.
 ### Example
 
 ```rust
-use horus_core::Scheduler;
+use horus::prelude::*;
 use std::time::Duration;
 
 fn main() -> HorusResult<()> {

@@ -29,7 +29,7 @@ Vision camera node for image capture supporting USB cameras, Raspberry Pi Camera
 ```rust
 use horus_library::nodes::CameraNode;
 use horus_library::vision::ImageEncoding;
-use horus_core::Scheduler;
+use horus::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut scheduler = Scheduler::new();
@@ -168,7 +168,7 @@ Note: Topic names can be customized using `new_with_topic()` constructor.
 ```rust
 use horus_library::nodes::CameraNode;
 use horus_library::vision::ImageEncoding;
-use horus_core::{Node, Scheduler};
+use horus::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut scheduler = Scheduler::new();
@@ -192,7 +192,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 use horus_library::nodes::CameraNode;
 use horus_library::vision::ImageEncoding;
-use horus_core::{Node, Scheduler};
+use horus::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut scheduler = Scheduler::new();
@@ -224,7 +224,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 use horus_library::nodes::CameraNode;
 use horus_library::vision::ImageEncoding;
-use horus_core::{Node, Scheduler};
+use horus::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut scheduler = Scheduler::new();
@@ -249,7 +249,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 use horus_library::nodes::CameraNode;
 use horus_library::{Image, vision::ImageEncoding};
-use horus_core::{Node, Scheduler, Hub, NodeInfo};
+use horus::prelude::*;
 
 // Example image subscriber node
 struct ImageProcessor {
@@ -271,7 +271,7 @@ impl Node for ImageProcessor {
 
     fn tick(&mut self, mut ctx: Option<&mut NodeInfo>) {
         // Receive images from camera
-        if let Some(image) = self.subscriber.recv_latest() {
+        if let Some(image) = self.subscriber.recv(&mut ctx) {
             if let Some(ctx) = ctx.as_mut() {
                 ctx.log_debug(&format!("Received {}x{} image with {} bytes",
                          image.width, image.height, image.data.len()));

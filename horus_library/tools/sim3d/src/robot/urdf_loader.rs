@@ -9,13 +9,17 @@ use urdf_rs::{Geometry, Joint, Link, Robot as URDFRobot, Visual};
 use crate::assets::mesh::{MeshLoadOptions, MeshLoader};
 use crate::assets::resolver::PathResolver;
 use crate::hframe::HFrameTree;
+use crate::horus_bridge::subscriber::RobotCommandHandler;
 use crate::physics::collider::{ColliderBuilder, ColliderShape};
+use crate::physics::diff_drive::{CmdVel, DifferentialDrive};
 use crate::physics::joints::{
     create_fixed_joint, create_prismatic_joint, create_prismatic_joint_with_limits,
     create_revolute_joint, create_revolute_joint_with_limits, create_spherical_joint, JointType,
     PhysicsJoint,
 };
 use crate::physics::world::PhysicsWorld;
+use crate::robot::diff_drive_detector::DiffDriveDetector;
+use crate::robot::gazebo::{DifferentialDriveConfig, GazeboExtensionParser};
 use crate::robot::robot::Robot;
 use bevy::render::mesh::{Indices, VertexAttributeValues};
 use tracing::info;
@@ -126,6 +130,32 @@ impl URDFLoader {
         meshes: &mut Assets<Mesh>,
         materials: &mut Assets<StandardMaterial>,
     ) -> Result<Entity> {
+        self.load_at_position_with_config(
+            urdf_path,
+            position,
+            rotation,
+            None,
+            commands,
+            physics_world,
+            hframe_tree,
+            meshes,
+            materials,
+        )
+    }
+
+    /// Load URDF robot at a specific position and rotation with optional diff drive config override
+    pub fn load_at_position_with_config(
+        &mut self,
+        urdf_path: impl AsRef<Path>,
+        position: Vec3,
+        rotation: Quat,
+        diff_drive_override: Option<DifferentialDriveConfig>,
+        commands: &mut Commands,
+        physics_world: &mut PhysicsWorld,
+        hframe_tree: &mut HFrameTree,
+        meshes: &mut Assets<Mesh>,
+        materials: &mut Assets<StandardMaterial>,
+    ) -> Result<Entity> {
         let urdf_path = urdf_path.as_ref();
         let urdf_str = std::fs::read_to_string(urdf_path)
             .with_context(|| format!("Failed to read URDF file: {}", urdf_path.display()))?;
@@ -133,10 +163,36 @@ impl URDFLoader {
         let urdf = urdf_rs::read_from_string(&urdf_str)
             .with_context(|| format!("Failed to parse URDF file: {}", urdf_path.display()))?;
 
-        self.spawn_robot_at_position(
+        // Determine differential drive configuration from multiple sources:
+        // 1. Explicit override (from world.yaml diff_drive section)
+        // 2. Gazebo plugin detection
+        // 3. Auto-detection from URDF joint structure
+        let diff_drive_config = diff_drive_override
+            .or_else(|| {
+                // Try Gazebo plugin first
+                GazeboExtensionParser::parse(&urdf_str)
+                    .ok()
+                    .and_then(|ext| ext.diff_drive)
+            })
+            .or_else(|| {
+                // Fall back to auto-detection from joint structure
+                DiffDriveDetector::detect(&urdf)
+            });
+
+        if let Some(ref config) = diff_drive_config {
+            info!(
+                "Differential drive detected for robot '{}': wheel_sep={:.3}m, wheel_radius={:.3}m",
+                urdf.name,
+                config.wheel_separation,
+                config.wheel_diameter / 2.0
+            );
+        }
+
+        self.spawn_robot_at_position_with_diff_drive(
             urdf,
             position,
             rotation,
+            diff_drive_config,
             commands,
             physics_world,
             hframe_tree,
@@ -171,6 +227,32 @@ impl URDFLoader {
         urdf: URDFRobot,
         initial_position: Vec3,
         initial_rotation: Quat,
+        commands: &mut Commands,
+        physics_world: &mut PhysicsWorld,
+        hframe_tree: &mut HFrameTree,
+        meshes: &mut Assets<Mesh>,
+        materials: &mut Assets<StandardMaterial>,
+    ) -> Result<Entity> {
+        self.spawn_robot_at_position_with_diff_drive(
+            urdf,
+            initial_position,
+            initial_rotation,
+            None,
+            commands,
+            physics_world,
+            hframe_tree,
+            meshes,
+            materials,
+        )
+    }
+
+    /// Spawn a URDF robot with optional differential drive configuration
+    pub fn spawn_robot_at_position_with_diff_drive(
+        &mut self,
+        urdf: URDFRobot,
+        initial_position: Vec3,
+        initial_rotation: Quat,
+        diff_drive_config: Option<DifferentialDriveConfig>,
         commands: &mut Commands,
         physics_world: &mut PhysicsWorld,
         hframe_tree: &mut HFrameTree,
@@ -270,6 +352,31 @@ impl URDFLoader {
 
         // Add Robot component to the base link
         commands.entity(root_entity).insert(Robot::new(&robot_name));
+
+        // Add DifferentialDrive and CmdVel components if diff drive config is provided
+        if let Some(config) = diff_drive_config {
+            let diff_drive = DifferentialDrive::new(
+                config.wheel_separation,
+                config.wheel_diameter / 2.0, // Convert diameter to radius
+            )
+            .with_limits(
+                config.max_wheel_torque,       // Use torque as proxy for max velocity
+                config.max_wheel_acceleration, // Use accel as proxy for max angular
+            );
+
+            commands.entity(root_entity).insert((
+                diff_drive,
+                CmdVel::default(),
+                RobotCommandHandler::new(&robot_name),
+            ));
+
+            info!(
+                "Added differential drive to robot '{}': wheel_sep={:.3}m, wheel_radius={:.3}m",
+                robot_name,
+                config.wheel_separation,
+                config.wheel_diameter / 2.0
+            );
+        }
 
         info!(
             "Spawned articulated URDF robot '{}' with {} links and {} joints",

@@ -1,4 +1,5 @@
 pub mod articulated;
+pub mod diff_drive_detector;
 pub mod gazebo;
 pub mod mjcf_loader;
 #[allow(clippy::module_inception)] // Robot module provides Robot type - naming is intentional

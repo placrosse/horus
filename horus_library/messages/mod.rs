@@ -89,6 +89,10 @@ pub use ml::{
     SegmentationMask, Tensor, TrainingMetrics,
 };
 
+// Tensor types for zero-copy ML workloads
+pub mod tensor;
+pub use tensor::{HorusTensor, TensorDevice, TensorDtype};
+
 // Input (existing)
 pub use joystick_msg::JoystickInput;
 pub use keyboard_input_msg::KeyboardInput;

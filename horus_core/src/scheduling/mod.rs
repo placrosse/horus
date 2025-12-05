@@ -28,9 +28,9 @@ pub mod config;
 pub mod safety_monitor;
 pub mod scheduler;
 
-// Internal intelligence modules
-mod executors;
-mod fault_tolerance;
+// Advanced execution modules
+pub mod executors;
+pub mod fault_tolerance;
 mod intelligence;
 pub mod jit;
 
@@ -77,3 +77,14 @@ pub use record_replay::{
 pub use intelligence::{
     ExecutionTier, NodeProfile, NodeTier, OfflineProfiler, ProfileData, ProfileError,
 };
+
+// Re-export executors
+pub use executors::{
+    AsyncIOExecutor, AsyncResult, BackgroundExecutor, IsolatedExecutor, ParallelExecutor,
+};
+
+// Re-export fault tolerance
+pub use fault_tolerance::{CircuitBreaker, CircuitState};
+
+// Re-export JIT compiler
+pub use jit::JITCompiler;

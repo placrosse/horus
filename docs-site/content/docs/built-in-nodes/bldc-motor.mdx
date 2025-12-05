@@ -27,7 +27,7 @@ Brushless DC (BLDC) motor and Electronic Speed Controller (ESC) node supporting 
 ## Quick Start
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<()> {
     let mut scheduler = Scheduler::new();
@@ -265,7 +265,7 @@ bldc.set_3d_deadband(50); // Deadband around center
 ### Setting Motor Throttle
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 // Create throttle command
 let cmd = BldcCommand {
@@ -345,7 +345,7 @@ hub.send(calibrate_cmd, &mut None).ok();
 ## Complete Example: Quadcopter
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<()> {
     let mut scheduler = Scheduler::new();

@@ -114,7 +114,7 @@ fn main() -> Result<()> {
 ### Navigable Area Detection
 
 ```rust
-use horus_library::messages::SegmentationMask;
+use horus::prelude::*; // Provides SegmentationMask;
 
 let seg_hub = Hub::<SegmentationMask>::new("vision.segmentation")?;
 

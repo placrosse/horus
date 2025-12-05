@@ -256,10 +256,7 @@ pub fn handle_save_file_dialog(
     use rfd::FileDialog;
 
     for event in events.read() {
-        let title = event
-            .title
-            .clone()
-            .unwrap_or_else(|| "Save As".to_string());
+        let title = event.title.clone().unwrap_or_else(|| "Save As".to_string());
 
         let mut dialog = FileDialog::new().set_title(&title);
 
@@ -292,9 +289,7 @@ pub fn handle_save_file_dialog(
 
 /// System to handle save file dialog (stub when rfd is not available)
 #[cfg(not(feature = "rfd"))]
-pub fn handle_save_file_dialog(
-    mut events: EventReader<SaveFileDialogEvent>,
-) {
+pub fn handle_save_file_dialog(mut events: EventReader<SaveFileDialogEvent>) {
     for _event in events.read() {
         warn!("Native save dialog not available - build with 'visual' feature for rfd support");
     }

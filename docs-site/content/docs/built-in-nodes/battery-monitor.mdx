@@ -28,7 +28,7 @@ Battery and power monitoring node using INA219/INA226 I2C current/voltage sensor
 ## Quick Start
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<()> {
     let mut scheduler = Scheduler::new();
@@ -394,7 +394,7 @@ battery.set_critical_soc_threshold(5);  // 5%
 ### Reading Battery Data
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 // Subscribe to battery data
 let hub = Hub::<BatteryData>::new("battery.data")?;
@@ -452,7 +452,7 @@ while let Some(data) = hub.recv(&mut None) {
 ## Complete Example: Battery Monitor System
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<()> {
     let mut scheduler = Scheduler::new();

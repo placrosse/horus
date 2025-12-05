@@ -49,6 +49,12 @@ vision = ["horus_library/vision"]
 full-hardware = ["horus_library/full-hardware"]
 all-sensors = ["horus_library/all-sensors"]
 
+# Advanced features from horus_core
+cuda = ["horus_core/cuda"]
+quic = ["horus_core/quic"]
+tls = ["horus_core/tls"]
+io-uring-net = ["horus_core/io-uring-net"]
+
 # Legacy aliases (for backwards compatibility)
 gilrs = ["horus_library/gilrs"]
 crossterm = ["horus_library/crossterm"]

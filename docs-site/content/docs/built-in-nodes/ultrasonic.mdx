@@ -26,7 +26,7 @@ HC-SR04 ultrasonic distance sensor node for obstacle detection, proximity sensin
 ## Quick Start
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<()> {
     let mut scheduler = Scheduler::new();
@@ -182,7 +182,7 @@ ultrasonic.set_temperature(20.0); // 20°C
 ### Reading Distance
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 // Subscribe to distance measurements
 let hub = Hub::<Range>::new("ultrasonic.range")?;
@@ -234,7 +234,7 @@ if let Some((&id, &dist)) = distances.iter().min_by(|a, b| a.1.partial_cmp(b.1).
 ## Complete Example: Obstacle Avoidance
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<()> {
     let mut scheduler = Scheduler::new();

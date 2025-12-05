@@ -296,8 +296,8 @@ impl ForceTorqueSensorNode {
             #[cfg(feature = "robotiq-serial")]
             robotiq_calibration: RobotiqCalibration {
                 // FT-300 typical scaling (adjust based on calibration file)
-                force_scale: [0.001, 0.001, 0.001],   // mN to N
-                torque_scale: [0.001, 0.001, 0.001],  // mNm to Nm
+                force_scale: [0.001, 0.001, 0.001],  // mN to N
+                torque_scale: [0.001, 0.001, 0.001], // mNm to Nm
             },
             status_counter: 0,
             processor: PassThrough::new(),
@@ -655,7 +655,10 @@ impl ForceTorqueSensorNode {
                 };
 
                 let fd = unsafe {
-                    libc::open(c_path.as_ptr(), libc::O_RDWR | libc::O_NOCTTY | libc::O_NONBLOCK)
+                    libc::open(
+                        c_path.as_ptr(),
+                        libc::O_RDWR | libc::O_NOCTTY | libc::O_NONBLOCK,
+                    )
                 };
 
                 if fd < 0 {
@@ -691,7 +694,8 @@ impl ForceTorqueSensorNode {
 
                 // Raw input mode
                 termios.c_lflag &= !(libc::ICANON | libc::ECHO | libc::ECHOE | libc::ISIG);
-                termios.c_iflag &= !(libc::IXON | libc::IXOFF | libc::IXANY | libc::INLCR | libc::ICRNL);
+                termios.c_iflag &=
+                    !(libc::IXON | libc::IXOFF | libc::IXANY | libc::INLCR | libc::ICRNL);
                 termios.c_oflag &= !libc::OPOST;
 
                 // Read timeout (0.1 second)
@@ -713,8 +717,8 @@ impl ForceTorqueSensorNode {
                 // Command: 0x09 0x03 0x00 0x00 0x00 0x06 [CRC16]
                 // This requests 6 registers starting at address 0 (force/torque data)
                 let modbus_cmd: [u8; 8] = [
-                    0x09,       // Slave address (default for FT-300)
-                    0x03,       // Function code: Read holding registers
+                    0x09, // Slave address (default for FT-300)
+                    0x03, // Function code: Read holding registers
                     0x00, 0x00, // Starting register address (high, low)
                     0x00, 0x06, // Number of registers to read (6 = Fx,Fy,Fz,Tx,Ty,Tz)
                     0x00, 0x00, // CRC16 placeholder (will be calculated)
@@ -727,7 +731,11 @@ impl ForceTorqueSensorNode {
                 cmd_with_crc[7] = ((crc >> 8) & 0xFF) as u8;
 
                 let written = unsafe {
-                    libc::write(fd, cmd_with_crc.as_ptr() as *const libc::c_void, cmd_with_crc.len())
+                    libc::write(
+                        fd,
+                        cmd_with_crc.as_ptr() as *const libc::c_void,
+                        cmd_with_crc.len(),
+                    )
                 };
 
                 if written < 0 {
@@ -740,7 +748,9 @@ impl ForceTorqueSensorNode {
             }
             #[cfg(not(feature = "robotiq-serial"))]
             FtBackend::RobotiqSerial => {
-                ctx.log_warning("Robotiq Serial backend requested but robotiq-serial feature not enabled");
+                ctx.log_warning(
+                    "Robotiq Serial backend requested but robotiq-serial feature not enabled",
+                );
                 ctx.log_warning("Falling back to simulation mode");
                 self.backend = FtBackend::Simulation;
                 true
@@ -844,8 +854,8 @@ impl ForceTorqueSensorNode {
 
         // Send read command: read 6 registers starting at 0
         let modbus_cmd: [u8; 6] = [
-            0x09,       // Slave address
-            0x03,       // Function code: Read holding registers
+            0x09, // Slave address
+            0x03, // Function code: Read holding registers
             0x00, 0x00, // Starting register address
             0x00, 0x06, // Number of registers (6 = Fx,Fy,Fz,Tx,Ty,Tz)
         ];
@@ -857,9 +867,7 @@ impl ForceTorqueSensorNode {
         cmd_with_crc[7] = ((crc >> 8) & 0xFF) as u8;
 
         // Send command
-        let written = unsafe {
-            libc::write(fd, cmd_with_crc.as_ptr() as *const libc::c_void, 8)
-        };
+        let written = unsafe { libc::write(fd, cmd_with_crc.as_ptr() as *const libc::c_void, 8) };
 
         if written != 8 {
             return false;

@@ -26,7 +26,7 @@ I2C (Inter-Integrated Circuit) bus communication node for interfacing with senso
 ## Quick Start
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<()> {
     let mut scheduler = Scheduler::new();
@@ -172,7 +172,7 @@ let i2c = I2cBusNode::new_with_config(
 ### Reading from a Device
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 // Create I2C transaction request
 let request = I2cMessage::read(

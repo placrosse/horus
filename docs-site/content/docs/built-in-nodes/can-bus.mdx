@@ -27,7 +27,7 @@ Controller Area Network (CAN) bus communication node for automotive, industrial,
 ## Quick Start
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<()> {
     let mut scheduler = Scheduler::new();
@@ -172,7 +172,7 @@ can.set_blacklist_mode(); // Block filtered IDs
 ### Sending CAN Frames
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 // Create standard CAN frame
 let mut frame = CanFrame::new(0x123, false); // ID, extended
@@ -297,7 +297,7 @@ pub const ERROR_RESTARTED: u8 = 9;   // Controller restarted
 ## Complete Example
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<()> {
     let mut scheduler = Scheduler::new();

@@ -249,8 +249,9 @@ where
         }
 
         // Check for video capture and streaming support
-        if (cap.capabilities & V4L2_CAP_VIDEO_CAPTURE) == 0 ||
-           (cap.capabilities & V4L2_CAP_STREAMING) == 0 {
+        if (cap.capabilities & V4L2_CAP_VIDEO_CAPTURE) == 0
+            || (cap.capabilities & V4L2_CAP_STREAMING) == 0
+        {
             unsafe { libc::close(fd) };
             return false;
         }
@@ -372,7 +373,8 @@ where
                 return false;
             }
 
-            self.v4l2_buffers.push((ptr as *mut u8, buf.length as usize));
+            self.v4l2_buffers
+                .push((ptr as *mut u8, buf.length as usize));
 
             // Queue buffer
             if unsafe { libc::ioctl(fd, VIDIOC_QBUF, &buf) } < 0 {
@@ -519,16 +521,17 @@ where
 
             // Pixel 0
             let bgr_idx0 = i * 6;
-            bgr_data[bgr_idx0] = (y0 + 1.772 * u).clamp(0.0, 255.0) as u8;         // B
+            bgr_data[bgr_idx0] = (y0 + 1.772 * u).clamp(0.0, 255.0) as u8; // B
             bgr_data[bgr_idx0 + 1] = (y0 - 0.344 * u - 0.714 * v).clamp(0.0, 255.0) as u8; // G
-            bgr_data[bgr_idx0 + 2] = (y0 + 1.402 * v).clamp(0.0, 255.0) as u8;     // R
+            bgr_data[bgr_idx0 + 2] = (y0 + 1.402 * v).clamp(0.0, 255.0) as u8; // R
 
             // Pixel 1
             let bgr_idx1 = i * 6 + 3;
             if bgr_idx1 + 2 < bgr_data.len() {
-                bgr_data[bgr_idx1] = (y1 + 1.772 * u).clamp(0.0, 255.0) as u8;         // B
+                bgr_data[bgr_idx1] = (y1 + 1.772 * u).clamp(0.0, 255.0) as u8; // B
                 bgr_data[bgr_idx1 + 1] = (y1 - 0.344 * u - 0.714 * v).clamp(0.0, 255.0) as u8; // G
-                bgr_data[bgr_idx1 + 2] = (y1 + 1.402 * v).clamp(0.0, 255.0) as u8;     // R
+                bgr_data[bgr_idx1 + 2] = (y1 + 1.402 * v).clamp(0.0, 255.0) as u8;
+                // R
             }
         }
 

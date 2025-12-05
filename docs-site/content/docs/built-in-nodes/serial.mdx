@@ -26,7 +26,7 @@ Universal Asynchronous Receiver-Transmitter (UART) serial communication node for
 ## Quick Start
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<()> {
     let mut scheduler = Scheduler::new();
@@ -197,7 +197,7 @@ serial.set_framing_mode(FramingMode::Raw);
 ### Sending Data
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 // Create serial message
 let msg = SerialMessage {
@@ -350,7 +350,7 @@ pub struct SerialMessage {
 ## Complete Example: GPS Logger
 
 ```rust
-use horus_library::prelude::*;
+use horus::prelude::*;
 
 fn main() -> Result<()> {
     let mut scheduler = Scheduler::new();

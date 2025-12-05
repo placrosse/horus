@@ -222,7 +222,10 @@ impl LidarNode {
                 {
                     match self.initialize_ydlidar() {
                         Ok(()) => {
-                            eprintln!("YDLIDAR {:?} initialized on {}", self.backend, self.serial_port_path);
+                            eprintln!(
+                                "YDLIDAR {:?} initialized on {}",
+                                self.backend, self.serial_port_path
+                            );
                             self.is_initialized = true;
                             return true;
                         }
@@ -254,7 +257,12 @@ impl LidarNode {
         let port = serialport::new(&self.serial_port_path, self.baud_rate)
             .timeout(Duration::from_millis(100))
             .open()
-            .map_err(|e| format!("Failed to open serial port {}: {}", self.serial_port_path, e))?;
+            .map_err(|e| {
+                format!(
+                    "Failed to open serial port {}: {}",
+                    self.serial_port_path, e
+                )
+            })?;
 
         self.serial_port = Some(port);
         self.read_buffer.clear();
@@ -350,7 +358,10 @@ impl LidarNode {
         // Data: LSN * 2 bytes (distance samples)
 
         // Find packet header
-        let header_pos = self.read_buffer.windows(2).position(|w| w == [0xAA, 0x55])?;
+        let header_pos = self
+            .read_buffer
+            .windows(2)
+            .position(|w| w == [0xAA, 0x55])?;
 
         // Need at least 10 bytes for header + minimal data
         if self.read_buffer.len() < header_pos + 10 {
@@ -463,7 +474,9 @@ where
         #[cfg(feature = "serial-hardware")]
         {
             match self.backend {
-                LidarBackend::YdlidarX2 | LidarBackend::YdlidarX4 | LidarBackend::YdlidarTMiniPro => {
+                LidarBackend::YdlidarX2
+                | LidarBackend::YdlidarX4
+                | LidarBackend::YdlidarTMiniPro => {
                     self.stop_ydlidar();
                 }
                 _ => {}

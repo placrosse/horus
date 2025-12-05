@@ -18,6 +18,36 @@ pub struct GazeboExtensions {
     pub sensors: Vec<GazeboSensor>,
     /// Gazebo plugins
     pub plugins: Vec<GazeboPlugin>,
+    /// Differential drive configuration (if detected)
+    pub diff_drive: Option<DifferentialDriveConfig>,
+}
+
+/// Differential drive configuration parsed from Gazebo plugin
+#[derive(Debug, Clone)]
+pub struct DifferentialDriveConfig {
+    pub left_joint: String,
+    pub right_joint: String,
+    pub wheel_separation: f32,
+    pub wheel_diameter: f32,
+    pub max_wheel_torque: f32,
+    pub max_wheel_acceleration: f32,
+    pub command_topic: String,
+    pub odometry_topic: String,
+}
+
+impl Default for DifferentialDriveConfig {
+    fn default() -> Self {
+        Self {
+            left_joint: "left_wheel_joint".to_string(),
+            right_joint: "right_wheel_joint".to_string(),
+            wheel_separation: 0.17,
+            wheel_diameter: 0.066,
+            max_wheel_torque: 5.0,
+            max_wheel_acceleration: 2.0,
+            command_topic: "cmd_vel".to_string(),
+            odometry_topic: "odom".to_string(),
+        }
+    }
 }
 
 /// Gazebo material definition
@@ -114,11 +144,80 @@ impl GazeboExtensionParser {
         } else {
             // Global extensions (plugins, etc.)
             if let Some(plugin) = Self::parse_plugin(node) {
+                // Check if this is a differential drive plugin
+                if Self::is_diff_drive_plugin(&plugin) {
+                    extensions.diff_drive = Some(Self::parse_diff_drive_config(&plugin));
+                }
                 extensions.plugins.push(plugin);
             }
         }
 
         Ok(())
+    }
+
+    /// Check if a plugin is a differential drive controller
+    fn is_diff_drive_plugin(plugin: &GazeboPlugin) -> bool {
+        // Check filename patterns used by various diff drive plugins
+        let diff_drive_filenames = [
+            "libgazebo_ros_diff_drive",
+            "diff_drive",
+            "differential_drive",
+            "libdiff_drive_controller",
+        ];
+
+        let filename_lower = plugin.filename.to_lowercase();
+        let name_lower = plugin.name.to_lowercase();
+
+        diff_drive_filenames
+            .iter()
+            .any(|pattern| filename_lower.contains(pattern) || name_lower.contains(pattern))
+    }
+
+    /// Parse differential drive configuration from plugin parameters
+    fn parse_diff_drive_config(plugin: &GazeboPlugin) -> DifferentialDriveConfig {
+        let params = &plugin.parameters;
+
+        DifferentialDriveConfig {
+            left_joint: params
+                .get("left_joint")
+                .or_else(|| params.get("leftJoint"))
+                .cloned()
+                .unwrap_or_else(|| "left_wheel_joint".to_string()),
+            right_joint: params
+                .get("right_joint")
+                .or_else(|| params.get("rightJoint"))
+                .cloned()
+                .unwrap_or_else(|| "right_wheel_joint".to_string()),
+            wheel_separation: params
+                .get("wheel_separation")
+                .or_else(|| params.get("wheelSeparation"))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0.17),
+            wheel_diameter: params
+                .get("wheel_diameter")
+                .or_else(|| params.get("wheelDiameter"))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0.066),
+            max_wheel_torque: params
+                .get("max_wheel_torque")
+                .or_else(|| params.get("torque"))
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(5.0),
+            max_wheel_acceleration: params
+                .get("max_wheel_acceleration")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(2.0),
+            command_topic: params
+                .get("command_topic")
+                .or_else(|| params.get("commandTopic"))
+                .cloned()
+                .unwrap_or_else(|| "cmd_vel".to_string()),
+            odometry_topic: params
+                .get("odometry_topic")
+                .or_else(|| params.get("odometryTopic"))
+                .cloned()
+                .unwrap_or_else(|| "odom".to_string()),
+        }
     }
 
     fn parse_material(node: &Node) -> Option<GazeboMaterial> {
@@ -403,5 +502,62 @@ mod tests {
             plugin.parameters.get("right_joint"),
             Some(&"right_wheel_joint".to_string())
         );
+    }
+
+    #[test]
+    fn test_parse_diff_drive_config() {
+        let urdf_xml = r#"
+        <robot name="test">
+            <gazebo>
+                <plugin name="differential_drive" filename="libgazebo_ros_diff_drive.so">
+                    <left_joint>left_wheel_joint</left_joint>
+                    <right_joint>right_wheel_joint</right_joint>
+                    <wheel_separation>0.17</wheel_separation>
+                    <wheel_diameter>0.08</wheel_diameter>
+                    <max_wheel_torque>5.0</max_wheel_torque>
+                    <max_wheel_acceleration>2.0</max_wheel_acceleration>
+                    <command_topic>cmd_vel</command_topic>
+                    <odometry_topic>odom</odometry_topic>
+                </plugin>
+            </gazebo>
+        </robot>
+        "#;
+
+        let extensions = GazeboExtensionParser::parse(urdf_xml).unwrap();
+
+        // Should detect diff drive plugin
+        assert!(extensions.diff_drive.is_some());
+
+        let diff_drive = extensions.diff_drive.unwrap();
+        assert_eq!(diff_drive.left_joint, "left_wheel_joint");
+        assert_eq!(diff_drive.right_joint, "right_wheel_joint");
+        assert_eq!(diff_drive.wheel_separation, 0.17);
+        assert_eq!(diff_drive.wheel_diameter, 0.08);
+        assert_eq!(diff_drive.max_wheel_torque, 5.0);
+        assert_eq!(diff_drive.command_topic, "cmd_vel");
+    }
+
+    #[test]
+    fn test_diff_drive_detection_various_names() {
+        // Test various plugin naming conventions
+        let test_cases = [
+            ("diff_drive", "libgazebo_ros_diff_drive.so"),
+            ("my_controller", "libdiff_drive_controller.so"),
+            ("differential_drive_controller", "some_plugin.so"),
+        ];
+
+        for (name, filename) in test_cases {
+            let plugin = GazeboPlugin {
+                name: name.to_string(),
+                filename: filename.to_string(),
+                parameters: HashMap::new(),
+            };
+            assert!(
+                GazeboExtensionParser::is_diff_drive_plugin(&plugin),
+                "Should detect diff drive for name='{}', filename='{}'",
+                name,
+                filename
+            );
+        }
     }
 }

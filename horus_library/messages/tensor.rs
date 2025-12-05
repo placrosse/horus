@@ -367,7 +367,19 @@ impl<'de> Deserialize<'de> for HorusTensor {
 
         deserializer.deserialize_struct(
             "HorusTensor",
-            &["pool_id", "slot_id", "generation", "offset", "size", "dtype", "ndim", "device", "shape", "strides", "cuda_ipc_handle"],
+            &[
+                "pool_id",
+                "slot_id",
+                "generation",
+                "offset",
+                "size",
+                "dtype",
+                "ndim",
+                "device",
+                "shape",
+                "strides",
+                "cuda_ipc_handle",
+            ],
             HorusTensorVisitor,
         )
     }
@@ -579,13 +591,13 @@ mod tests {
     #[test]
     fn test_tensor_creation() {
         let tensor = HorusTensor::new(
-            1,                  // pool_id
-            42,                 // slot_id
-            1,                  // generation
-            0,                  // offset
-            &[1080, 1920, 3],   // shape (H, W, C)
-            TensorDtype::U8,    // dtype
-            TensorDevice::Cpu,  // device
+            1,                 // pool_id
+            42,                // slot_id
+            1,                 // generation
+            0,                 // offset
+            &[1080, 1920, 3],  // shape (H, W, C)
+            TensorDtype::U8,   // dtype
+            TensorDevice::Cpu, // device
         );
 
         assert_eq!(tensor.shape(), &[1080, 1920, 3]);
@@ -597,12 +609,7 @@ mod tests {
 
     #[test]
     fn test_tensor_strides() {
-        let tensor = HorusTensor::new(
-            0, 0, 0, 0,
-            &[2, 3, 4],
-            TensorDtype::F32,
-            TensorDevice::Cpu,
-        );
+        let tensor = HorusTensor::new(0, 0, 0, 0, &[2, 3, 4], TensorDtype::F32, TensorDevice::Cpu);
 
         // Row-major strides for [2, 3, 4] with f32:
         // stride[2] = 4 (element size)
@@ -613,12 +620,7 @@ mod tests {
 
     #[test]
     fn test_tensor_view() {
-        let tensor = HorusTensor::new(
-            0, 0, 0, 0,
-            &[2, 3, 4],
-            TensorDtype::F32,
-            TensorDevice::Cpu,
-        );
+        let tensor = HorusTensor::new(0, 0, 0, 0, &[2, 3, 4], TensorDtype::F32, TensorDevice::Cpu);
 
         // Reshape to [6, 4]
         let view = tensor.view(&[6, 4]).unwrap();
@@ -631,12 +633,7 @@ mod tests {
 
     #[test]
     fn test_tensor_slice() {
-        let tensor = HorusTensor::new(
-            1, 2, 3, 0,
-            &[10, 5],
-            TensorDtype::F32,
-            TensorDevice::Cpu,
-        );
+        let tensor = HorusTensor::new(1, 2, 3, 0, &[10, 5], TensorDtype::F32, TensorDevice::Cpu);
 
         let slice = tensor.slice_first_dim(2, 7).unwrap();
         assert_eq!(slice.shape(), &[5, 5]);
@@ -656,6 +653,9 @@ mod tests {
         // Verify struct size is reasonable for IPC
         let size = std::mem::size_of::<HorusTensor>();
         println!("HorusTensor size: {} bytes", size);
-        assert!(size < 256, "HorusTensor should be <256 bytes for efficient IPC");
+        assert!(
+            size < 256,
+            "HorusTensor should be <256 bytes for efficient IPC"
+        );
     }
 }

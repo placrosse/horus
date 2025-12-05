@@ -128,12 +128,7 @@ fn solve_ik_dls(
 }
 
 /// Analytical 2-DOF IK for planar arm
-fn solve_ik_2dof_analytical(
-    l1: f32,
-    l2: f32,
-    target_x: f32,
-    target_y: f32,
-) -> Option<(f32, f32)> {
+fn solve_ik_2dof_analytical(l1: f32, l2: f32, target_x: f32, target_y: f32) -> Option<(f32, f32)> {
     let dist_sq = target_x * target_x + target_y * target_y;
     let dist = dist_sq.sqrt();
 
@@ -273,9 +268,7 @@ fn benchmark_forward_kinematics(c: &mut Criterion) {
             // Random-ish joint angles
             config.angles = (0..dof).map(|i| (i as f32 * 0.5).sin() * 0.5).collect();
 
-            b.iter(|| {
-                black_box(forward_kinematics(&config))
-            });
+            b.iter(|| black_box(forward_kinematics(&config)));
         });
     }
 
@@ -290,9 +283,7 @@ fn benchmark_jacobian_computation(c: &mut Criterion) {
             let mut config = JointConfig::new(dof);
             config.angles = (0..dof).map(|i| (i as f32 * 0.3).sin() * 0.3).collect();
 
-            b.iter(|| {
-                black_box(compute_jacobian(&config))
-            });
+            b.iter(|| black_box(compute_jacobian(&config)));
         });
     }
 

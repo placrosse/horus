@@ -20,7 +20,7 @@ Implement complex behavior using state machines - ideal for autonomous robots wi
 
 ```rust
 use horus::prelude::*;
-use horus_library::messages::CmdVel;
+use horus::prelude::*; // Provides CmdVel;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum RobotState {
@@ -153,7 +153,7 @@ Use node priorities to ensure safety-critical tasks always run first - essential
 
 ```rust
 use horus::prelude::*;
-use horus_library::messages::{CmdVel, BatteryState};
+use horus::prelude::*; // Provides {CmdVel, BatteryState};
 
 // CRITICAL PRIORITY: Emergency stop
 struct EmergencyStopNode {

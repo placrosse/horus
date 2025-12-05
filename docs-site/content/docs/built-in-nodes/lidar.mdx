@@ -27,7 +27,7 @@ LiDAR (Light Detection and Ranging) node for 2D and 3D laser rangefinding. Suppo
 
 ```rust
 use horus_library::nodes::{LidarNode, LidarBackend};
-use horus_core::Scheduler;
+use horus::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut scheduler = Scheduler::new();
@@ -179,8 +179,8 @@ eprintln!("Actual scan rate: {} Hz", actual_rate);
 
 ```rust
 use horus_library::nodes::LidarNode;
-use horus_library::LaserScan;
-use horus_core::{Node, Scheduler, Hub, NodeInfo};
+use horus::prelude::*;
+use horus::prelude::*;
 
 /// Custom node that detects obstacles from LiDAR scans
 struct ObstacleDetector {
@@ -203,7 +203,7 @@ impl Node for ObstacleDetector {
     }
 
     fn tick(&mut self, ctx: Option<&mut NodeInfo>) {
-        if let Some(scan) = self.scan_sub.recv_latest() {
+        if let Some(scan) = self.scan_sub.recv(&mut ctx) {
             // Find closest obstacle
             if let Some(min_dist) = scan.min_range() {
                 if min_dist < self.warning_distance {
@@ -239,8 +239,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```rust
 use horus_library::nodes::LidarNode;
-use horus_library::LaserScan;
-use horus_core::{Node, Scheduler, Hub, NodeInfo};
+use horus::prelude::*;
+use horus::prelude::*;
 
 /// Monitors multiple LiDAR sensors
 struct MultiLidarMonitor {
@@ -264,14 +264,14 @@ impl Node for MultiLidarMonitor {
 
     fn tick(&mut self, ctx: Option<&mut NodeInfo>) {
         // Process front scan
-        if let Some(scan) = self.front_sub.recv_latest() {
+        if let Some(scan) = self.front_sub.recv(&mut ctx) {
             if let Some(ctx) = ctx {
                 ctx.log_info(&format!("Front LiDAR: {} valid points", scan.valid_count()));
             }
         }
 
         // Process rear scan
-        if let Some(scan) = self.rear_sub.recv_latest() {
+        if let Some(scan) = self.rear_sub.recv(&mut ctx) {
             if let Some(ctx) = ctx {
                 ctx.log_info(&format!("Rear LiDAR: {} valid points", scan.valid_count()));
             }
@@ -309,7 +309,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Collision Detection Zones
 
 ```rust
-use horus_library::LaserScan;
+use horus::prelude::*;
 
 fn check_collision_zones(scan: &LaserScan, num_zones: usize, danger_distance: f32) {
     let zone_angle = 2.0 * std::f32::consts::PI / num_zones as f32;
@@ -462,8 +462,8 @@ lidar.set_scan_frequency(20.0);
 
 ```rust
 use horus_library::nodes::LidarNode;
-use horus_library::LaserScan;
-use horus_core::{Node, Scheduler, Hub, NodeInfo};
+use horus::prelude::*;
+use horus::prelude::*;
 
 struct SlamProcessor {
     scan_sub: Hub<LaserScan>,
@@ -483,7 +483,7 @@ impl Node for SlamProcessor {
     fn name(&self) -> &'static str { "SlamProcessor" }
 
     fn tick(&mut self, ctx: Option<&mut NodeInfo>) {
-        if let Some(scan) = self.scan_sub.recv_latest() {
+        if let Some(scan) = self.scan_sub.recv(&mut ctx) {
             // Filter out invalid readings for better SLAM results
             let valid_ratio = scan.valid_count() as f32 / 360.0;
             if valid_ratio > self.min_valid_ratio {
@@ -501,7 +501,7 @@ impl Node for SlamProcessor {
 ### Costmap Generation
 
 ```rust
-use horus_library::LaserScan;
+use horus::prelude::*;
 
 const GRID_SIZE: usize = 200;  // 200x200 grid
 const GRID_RESOLUTION: f32 = 0.05;  // 5cm per cell

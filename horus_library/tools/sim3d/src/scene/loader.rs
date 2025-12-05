@@ -5,7 +5,9 @@ use std::path::Path;
 use crate::error::{EnhancedError, ErrorCategory, Result};
 use crate::hframe::HFrameTree;
 use crate::physics::world::PhysicsWorld;
+use crate::robot::gazebo::DifferentialDriveConfig;
 use crate::robot::urdf_loader::URDFLoader;
+use crate::robot::xacro_loader::XacroPreprocessor;
 use crate::scene::spawner::{ObjectSpawnConfig, ObjectSpawner, SpawnShape, SpawnedObjects};
 use crate::scene::validation::SceneValidator;
 
@@ -62,6 +64,32 @@ pub struct SceneRobot {
     pub rotation: [f32; 4], // Quaternion (w, x, y, z)
     #[serde(default)]
     pub rotation_euler: Option<[f32; 3]>, // Alternative: euler angles (x, y, z) in degrees
+    /// Optional differential drive configuration override
+    #[serde(default)]
+    pub diff_drive: Option<SceneDiffDrive>,
+}
+
+/// Differential drive configuration for a robot in the scene file
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneDiffDrive {
+    /// Distance between the two drive wheels (meters)
+    pub wheel_separation: f32,
+    /// Radius of the drive wheels (meters)
+    pub wheel_radius: f32,
+    /// Maximum linear velocity (m/s)
+    #[serde(default = "default_max_linear_velocity")]
+    pub max_linear_velocity: f32,
+    /// Maximum angular velocity (rad/s)
+    #[serde(default = "default_max_angular_velocity")]
+    pub max_angular_velocity: f32,
+}
+
+fn default_max_linear_velocity() -> f32 {
+    0.5
+}
+
+fn default_max_angular_velocity() -> f32 {
+    2.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -175,6 +203,9 @@ struct LegacyRobot {
     orientation: Option<[f32; 3]>,
     #[serde(default)]
     urdf_path: Option<String>,
+    /// Optional differential drive configuration
+    #[serde(default)]
+    diff_drive: Option<SceneDiffDrive>,
     #[serde(flatten)]
     _extra: std::collections::HashMap<String, serde_yaml::Value>,
 }
@@ -367,6 +398,7 @@ impl LegacyRobot {
             position: self.position,
             rotation: [1.0, 0.0, 0.0, 0.0],
             rotation_euler: self.orientation,
+            diff_drive: self.diff_drive,
         })
     }
 }
@@ -731,17 +763,17 @@ impl SceneLoader {
 
         // Spawn robots
         for robot_def in &definition.robots {
-            // Resolve URDF path relative to world file directory
-            let urdf_path = if Path::new(&robot_def.urdf_path).is_absolute() {
+            // Resolve robot path relative to world file directory
+            let robot_path = if Path::new(&robot_def.urdf_path).is_absolute() {
                 robot_def.urdf_path.clone().into()
             } else {
                 world_dir.join(&robot_def.urdf_path)
             };
 
             info!(
-                "Loading robot '{}' from URDF: {}",
+                "Loading robot '{}' from: {}",
                 robot_def.name,
-                urdf_path.display()
+                robot_path.display()
             );
 
             // Calculate position and rotation from scene definition BEFORE spawning
@@ -757,11 +789,52 @@ impl SceneLoader {
                 Quat::from_array(robot_def.rotation)
             };
 
+            // Convert scene diff_drive config to DifferentialDriveConfig if provided
+            let diff_drive_config =
+                robot_def
+                    .diff_drive
+                    .as_ref()
+                    .map(|dd| DifferentialDriveConfig {
+                        left_joint: "left_wheel_joint".to_string(),
+                        right_joint: "right_wheel_joint".to_string(),
+                        wheel_separation: dd.wheel_separation,
+                        wheel_diameter: dd.wheel_radius * 2.0, // Convert radius to diameter
+                        max_wheel_torque: dd.max_linear_velocity,
+                        max_wheel_acceleration: dd.max_angular_velocity,
+                        command_topic: "cmd_vel".to_string(),
+                        odometry_topic: "odom".to_string(),
+                    });
+
+            // Check if the robot file is a .xacro file that needs preprocessing
+            let extension = robot_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+
+            let final_urdf_path = if extension == "xacro" {
+                // Preprocess xacro to URDF
+                let mut preprocessor = XacroPreprocessor::new();
+                match preprocessor.process_to_temp_file(&robot_path) {
+                    Ok(temp_path) => temp_path,
+                    Err(e) => {
+                        warn!(
+                            "Failed to process Xacro file for robot '{}': {}",
+                            robot_def.name, e
+                        );
+                        continue;
+                    }
+                }
+            } else {
+                robot_path.clone()
+            };
+
             let mut urdf_loader = URDFLoader::new().with_base_path(world_dir);
-            match urdf_loader.load_at_position(
-                &urdf_path,
+            match urdf_loader.load_at_position_with_config(
+                &final_urdf_path,
                 position,
                 rotation,
+                diff_drive_config,
                 commands,
                 physics_world,
                 hframe_tree,
@@ -772,8 +845,14 @@ impl SceneLoader {
                     loaded_scene.entities.push(robot_entity);
                     spawned_objects.add(robot_entity);
                     info!(
-                        "Successfully spawned robot '{}' at position {:?}",
-                        robot_def.name, position
+                        "Successfully spawned robot '{}' at position {:?}{}",
+                        robot_def.name,
+                        position,
+                        if robot_def.diff_drive.is_some() {
+                            " with differential drive"
+                        } else {
+                            ""
+                        }
                     );
                 }
                 Err(e) => {
