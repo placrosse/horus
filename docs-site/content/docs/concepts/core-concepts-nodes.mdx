@@ -35,18 +35,25 @@ A node is a **self-contained unit of computation** that runs in the HORUS schedu
 
 ## The Node Trait
 
-Every HORUS node implements the `Node` trait:
+Every HORUS node implements the `Node` trait. Here are the methods you'll use:
 
 ```rust
 pub trait Node: Send {
+    // Required - identify your node
     fn name(&self) -> &'static str;
+
+    // Required - your main logic runs here
+    fn tick(&mut self, ctx: Option<&mut NodeInfo>);
+
+    // Optional - setup when node starts
     fn init(&mut self, ctx: &mut NodeInfo) -> Result<()>;
-    fn tick(&mut self, mut ctx: Option<&mut NodeInfo>);
+
+    // Optional - cleanup when node stops
     fn shutdown(&mut self, ctx: &mut NodeInfo) -> Result<()>;
-    fn get_publishers(&self) -> Vec<TopicMetadata>;
-    fn get_subscribers(&self) -> Vec<TopicMetadata>;
 }
 ```
+
+> **Note:** The trait has additional methods for advanced use cases like topic metadata. See the [API Reference](/rust/api/core) for the complete trait definition.
 
 ### Required Methods
 
@@ -85,32 +92,6 @@ fn shutdown(&mut self, ctx: &mut NodeInfo) -> Result<()> {
     ctx.log_info("Node shutting down");
     // Clean up resources, close connections, etc.
     Ok(())
-}
-```
-
-**get_publishers()**: Returns list of published topics (default: empty)
-
-```rust
-fn get_publishers(&self) -> Vec<TopicMetadata> {
-    vec![
-        TopicMetadata {
-            topic_name: "cmd_vel".to_string(),
-            type_name: "CmdVel".to_string(),
-        }
-    ]
-}
-```
-
-**get_subscribers()**: Returns list of subscribed topics (default: empty)
-
-```rust
-fn get_subscribers(&self) -> Vec<TopicMetadata> {
-    vec![
-        TopicMetadata {
-            topic_name: "laser_scan".to_string(),
-            type_name: "LaserScan".to_string(),
-        }
-    ]
 }
 ```
 

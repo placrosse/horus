@@ -488,12 +488,11 @@ path = "{}"
                 cmd.arg("--release");
             }
 
-            // Add features from driver configuration
-            let driver_config = get_active_drivers();
-            if let Some(features) = get_cargo_features_arg(&driver_config) {
+            // Add features from drivers and enable configuration
+            if let Some(features) = get_all_cargo_features() {
                 cmd.arg("--features").arg(&features);
                 eprintln!(
-                    "  {} Auto-enabling features from drivers: {}",
+                    "  {} Auto-enabling features: {}",
                     "󰢱".cyan(),
                     features.green()
                 );
@@ -1191,12 +1190,11 @@ path = "{}"
         cmd.arg("--release");
     }
 
-    // Add features from driver configuration
-    let driver_config = get_active_drivers();
-    if let Some(features) = get_cargo_features_arg(&driver_config) {
+    // Add features from drivers and enable configuration
+    if let Some(features) = get_all_cargo_features() {
         cmd.arg("--features").arg(&features);
         eprintln!(
-            "  {} Auto-enabling features from drivers: {}",
+            "  {} Auto-enabling features: {}",
             "󰢱".cyan(),
             features.green()
         );
@@ -2536,6 +2534,173 @@ pub fn get_cargo_features_arg(config: &DriverConfig) -> Option<String> {
     }
 }
 
+// ============================================================================
+// Enable Capabilities Configuration
+// ============================================================================
+
+/// Enable configuration from horus.yaml or CLI --enable flag
+#[derive(Debug, Clone, Default)]
+pub struct EnableConfig {
+    /// List of capabilities to enable (e.g., ["cuda", "editor", "python"])
+    pub capabilities: Vec<String>,
+}
+
+/// Map a capability name to Cargo feature(s)
+///
+/// This maps user-friendly capability names to Cargo features.
+/// Users specify capabilities like "cuda" or "editor" without knowing the underlying features.
+///
+/// # Example mappings:
+/// - `cuda` → `["cuda"]`
+/// - `editor` → `["editor"]`
+/// - `python` → `["python"]`
+/// - `gpu` → `["cuda"]` (alias)
+/// - `headless` → `["headless"]`
+pub fn enable_to_features(capability: &str) -> Vec<String> {
+    match capability.to_lowercase().as_str() {
+        // GPU/CUDA capabilities
+        "cuda" | "gpu" => vec!["cuda".to_string()],
+
+        // Rendering/UI capabilities
+        "editor" => vec!["editor".to_string()],
+        "headless" => vec!["headless".to_string()],
+        "visual" => vec!["visual".to_string()],
+
+        // Language bindings
+        "python" | "py" => vec!["python".to_string()],
+
+        // Hardware interface features (shortcuts without -hardware suffix)
+        "gpio" => vec!["gpio-hardware".to_string()],
+        "i2c" => vec!["i2c-hardware".to_string()],
+        "spi" => vec!["spi-hardware".to_string()],
+        "can" => vec!["can-hardware".to_string()],
+        "serial" => vec!["serial-hardware".to_string()],
+
+        // Full hardware feature names (pass through)
+        "gpio-hardware" => vec!["gpio-hardware".to_string()],
+        "i2c-hardware" => vec!["i2c-hardware".to_string()],
+        "spi-hardware" => vec!["spi-hardware".to_string()],
+        "can-hardware" => vec!["can-hardware".to_string()],
+        "serial-hardware" => vec!["serial-hardware".to_string()],
+        "motor-hardware" => vec!["motor-hardware".to_string()],
+        "all-hardware" => vec!["all-hardware".to_string()],
+
+        // Backend features
+        "opencv" | "opencv-backend" => vec!["opencv-backend".to_string()],
+        "realsense" => vec!["realsense".to_string()],
+
+        // Performance features
+        "io-uring" | "io-uring-net" => vec!["io-uring-net".to_string()],
+        "ultra-low-latency" => vec!["ultra-low-latency".to_string()],
+
+        // Bundle aliases
+        "full" => vec!["full".to_string()],
+        "sim" | "simulation" => vec![], // Simulation mode - no hardware features
+
+        // Pass through unknown capabilities as-is (for advanced users)
+        other => vec![other.to_string()],
+    }
+}
+
+/// Get Cargo features to enable based on enable configuration
+pub fn get_cargo_features_from_enable(config: &EnableConfig) -> Vec<String> {
+    let mut features = Vec::new();
+
+    for capability in &config.capabilities {
+        let cap_features = enable_to_features(capability);
+        for f in cap_features {
+            if !features.contains(&f) {
+                features.push(f);
+            }
+        }
+    }
+
+    features
+}
+
+/// Parse enable section from horus.yaml
+///
+/// Supports list format:
+/// ```yaml
+/// enable:
+///   - cuda
+///   - editor
+///   - python
+/// ```
+pub fn parse_horus_yaml_enable(path: &str) -> Result<EnableConfig> {
+    let content = fs::read_to_string(path)?;
+
+    match serde_yaml::from_str::<serde_yaml::Value>(&content) {
+        Ok(yaml) => {
+            let mut config = EnableConfig::default();
+
+            if let Some(enable_value) = yaml.get("enable") {
+                if let serde_yaml::Value::Sequence(list) = enable_value {
+                    for item in list {
+                        if let serde_yaml::Value::String(capability) = item {
+                            config.capabilities.push(capability.clone());
+                        }
+                    }
+                }
+            }
+
+            Ok(config)
+        }
+        Err(_) => Ok(EnableConfig::default()),
+    }
+}
+
+/// Get active enable config - combines CLI override, horus.yaml config, and HORUS_ENABLE env var
+pub fn get_active_enable() -> EnableConfig {
+    // Priority: HORUS_ENABLE env var > horus.yaml
+    if let Ok(env_enable) = std::env::var("HORUS_ENABLE") {
+        let capabilities: Vec<String> = env_enable
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        if !capabilities.is_empty() {
+            return EnableConfig { capabilities };
+        }
+    }
+
+    // Fall back to horus.yaml
+    if std::path::Path::new("horus.yaml").exists() {
+        parse_horus_yaml_enable("horus.yaml").unwrap_or_default()
+    } else {
+        EnableConfig::default()
+    }
+}
+
+/// Get combined features string from both drivers and enable config
+pub fn get_all_cargo_features() -> Option<String> {
+    let driver_config = get_active_drivers();
+    let enable_config = get_active_enable();
+
+    let mut all_features = Vec::new();
+
+    // Add driver features
+    for f in get_cargo_features_from_drivers(&driver_config) {
+        if !all_features.contains(&f) {
+            all_features.push(f);
+        }
+    }
+
+    // Add enable features
+    for f in get_cargo_features_from_enable(&enable_config) {
+        if !all_features.contains(&f) {
+            all_features.push(f);
+        }
+    }
+
+    if all_features.is_empty() {
+        None
+    } else {
+        Some(all_features.join(","))
+    }
+}
+
 fn parse_cargo_dependencies(path: &str) -> Result<HashSet<String>> {
     let content = fs::read_to_string(path)?;
     let mut dependencies = HashSet::new();
@@ -3312,7 +3477,10 @@ fn resolve_dependencies(dependencies: HashSet<String>) -> Result<()> {
     resolve_dependencies_with_context(dependencies, None)
 }
 
-fn resolve_dependencies_with_context(dependencies: HashSet<String>, context_language: Option<&str>) -> Result<()> {
+fn resolve_dependencies_with_context(
+    dependencies: HashSet<String>,
+    context_language: Option<&str>,
+) -> Result<()> {
     // Check version compatibility first
     if let Err(e) = version::check_version_compatibility() {
         eprintln!("\n{}", "Hint:".cyan());
@@ -3321,7 +3489,8 @@ fn resolve_dependencies_with_context(dependencies: HashSet<String>, context_lang
     }
 
     // Split dependencies into HORUS packages, pip packages, and cargo packages
-    let (horus_packages, pip_packages, cargo_packages) = split_dependencies_with_context(dependencies, context_language);
+    let (horus_packages, pip_packages, cargo_packages) =
+        split_dependencies_with_context(dependencies, context_language);
 
     // Resolve HORUS packages (existing logic)
     if !horus_packages.is_empty() {
@@ -4245,12 +4414,11 @@ path = "{}"
                 cmd.arg("--release");
             }
 
-            // Add features from driver configuration
-            let driver_config = get_active_drivers();
-            if let Some(features) = get_cargo_features_arg(&driver_config) {
+            // Add features from drivers and enable configuration
+            if let Some(features) = get_all_cargo_features() {
                 cmd.arg("--features").arg(&features);
                 println!(
-                    "  {} Auto-enabling features from drivers: {}",
+                    "  {} Auto-enabling features: {}",
                     "󰢱".cyan(),
                     features.green()
                 );

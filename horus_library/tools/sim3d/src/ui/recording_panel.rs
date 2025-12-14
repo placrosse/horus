@@ -67,7 +67,12 @@ impl VideoFormat {
     }
 
     pub fn all() -> &'static [VideoFormat] {
-        &[VideoFormat::MP4, VideoFormat::WebM, VideoFormat::GIF, VideoFormat::ImageSequence]
+        &[
+            VideoFormat::MP4,
+            VideoFormat::WebM,
+            VideoFormat::GIF,
+            VideoFormat::ImageSequence,
+        ]
     }
 }
 
@@ -92,7 +97,12 @@ impl DataFormat {
     }
 
     pub fn all() -> &'static [DataFormat] {
-        &[DataFormat::MCAP, DataFormat::CSV, DataFormat::JSON, DataFormat::ROS2Bag]
+        &[
+            DataFormat::MCAP,
+            DataFormat::CSV,
+            DataFormat::JSON,
+            DataFormat::ROS2Bag,
+        ]
     }
 }
 
@@ -210,7 +220,10 @@ pub fn render_recording_panel_ui(
             RecordingState::Paused => egui::Color32::YELLOW,
             RecordingState::Playing => egui::Color32::GREEN,
         };
-        ui.colored_label(color, format!("{} {}", settings.state.icon(), settings.state.label()));
+        ui.colored_label(
+            color,
+            format!("{} {}", settings.state.icon(), settings.state.label()),
+        );
     });
 
     // Main controls
@@ -262,7 +275,10 @@ pub fn render_recording_panel_ui(
     if settings.state == RecordingState::Recording || settings.state == RecordingState::Paused {
         ui.separator();
         ui.label(format!("Frames: {}", settings.frames_recorded));
-        ui.label(format!("Duration: {:.1}s", settings.recording_duration_secs));
+        ui.label(format!(
+            "Duration: {:.1}s",
+            settings.recording_duration_secs
+        ));
         ui.label(format!("Size: {}", format_bytes(settings.data_size_bytes)));
     }
 
@@ -279,7 +295,10 @@ pub fn render_recording_panel_ui(
                     .selected_text(settings.video_format.name())
                     .show_ui(ui, |ui| {
                         for format in VideoFormat::all() {
-                            if ui.selectable_label(settings.video_format == *format, format.name()).clicked() {
+                            if ui
+                                .selectable_label(settings.video_format == *format, format.name())
+                                .clicked()
+                            {
                                 settings.video_format = *format;
                             }
                         }
@@ -293,8 +312,16 @@ pub fn render_recording_panel_ui(
 
             ui.horizontal(|ui| {
                 ui.label("Resolution:");
-                ui.add(egui::DragValue::new(&mut settings.video_resolution[0]).prefix("W:").range(320..=3840));
-                ui.add(egui::DragValue::new(&mut settings.video_resolution[1]).prefix("H:").range(240..=2160));
+                ui.add(
+                    egui::DragValue::new(&mut settings.video_resolution[0])
+                        .prefix("W:")
+                        .range(320..=3840),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut settings.video_resolution[1])
+                        .prefix("H:")
+                        .range(240..=2160),
+                );
             });
 
             ui.horizontal(|ui| {
@@ -306,12 +333,19 @@ pub fn render_recording_panel_ui(
 
     // Trajectory settings
     ui.collapsing("📈 Trajectory", |ui| {
-        ui.checkbox(&mut settings.trajectory_enabled, "Enable trajectory recording");
+        ui.checkbox(
+            &mut settings.trajectory_enabled,
+            "Enable trajectory recording",
+        );
 
         if settings.trajectory_enabled {
             ui.horizontal(|ui| {
                 ui.label("Rate:");
-                ui.add(egui::DragValue::new(&mut settings.trajectory_rate_hz).range(1.0..=1000.0).suffix(" Hz"));
+                ui.add(
+                    egui::DragValue::new(&mut settings.trajectory_rate_hz)
+                        .range(1.0..=1000.0)
+                        .suffix(" Hz"),
+                );
             });
 
             ui.checkbox(&mut settings.record_transforms, "Record transforms");
@@ -331,7 +365,10 @@ pub fn render_recording_panel_ui(
                     .selected_text(settings.data_format.name())
                     .show_ui(ui, |ui| {
                         for format in DataFormat::all() {
-                            if ui.selectable_label(settings.data_format == *format, format.name()).clicked() {
+                            if ui
+                                .selectable_label(settings.data_format == *format, format.name())
+                                .clicked()
+                            {
                                 settings.data_format = *format;
                             }
                         }

@@ -297,8 +297,17 @@ pub fn render_rendering_panel_ui(
         egui::ComboBox::from_id_salt("render_preset")
             .selected_text(settings.preset.name())
             .show_ui(ui, |ui| {
-                for preset in [RenderingPreset::Low, RenderingPreset::Medium, RenderingPreset::High, RenderingPreset::Ultra, RenderingPreset::Custom] {
-                    if ui.selectable_label(settings.preset == preset, preset.name()).clicked() {
+                for preset in [
+                    RenderingPreset::Low,
+                    RenderingPreset::Medium,
+                    RenderingPreset::High,
+                    RenderingPreset::Ultra,
+                    RenderingPreset::Custom,
+                ] {
+                    if ui
+                        .selectable_label(settings.preset == preset, preset.name())
+                        .clicked()
+                    {
                         settings.apply_preset(preset);
                     }
                 }
@@ -309,21 +318,30 @@ pub fn render_rendering_panel_ui(
 
     // Bloom
     ui.collapsing("✨ Bloom", |ui| {
-        if ui.checkbox(&mut settings.bloom_enabled, "Enabled").changed() {
+        if ui
+            .checkbox(&mut settings.bloom_enabled, "Enabled")
+            .changed()
+        {
             settings.dirty = true;
             settings.preset = RenderingPreset::Custom;
         }
         if settings.bloom_enabled {
             ui.horizontal(|ui| {
                 ui.label("Intensity:");
-                if ui.add(egui::Slider::new(&mut settings.bloom_intensity, 0.0..=1.0)).changed() {
+                if ui
+                    .add(egui::Slider::new(&mut settings.bloom_intensity, 0.0..=1.0))
+                    .changed()
+                {
                     settings.dirty = true;
                     settings.preset = RenderingPreset::Custom;
                 }
             });
             ui.horizontal(|ui| {
                 ui.label("Threshold:");
-                if ui.add(egui::Slider::new(&mut settings.bloom_threshold, 0.0..=3.0)).changed() {
+                if ui
+                    .add(egui::Slider::new(&mut settings.bloom_threshold, 0.0..=3.0))
+                    .changed()
+                {
                     settings.dirty = true;
                     settings.preset = RenderingPreset::Custom;
                 }
@@ -338,7 +356,10 @@ pub fn render_rendering_panel_ui(
         }
         ui.horizontal(|ui| {
             ui.label("Exposure:");
-            if ui.add(egui::Slider::new(&mut settings.exposure, 0.1..=5.0)).changed() {
+            if ui
+                .add(egui::Slider::new(&mut settings.exposure, 0.1..=5.0))
+                .changed()
+            {
                 settings.dirty = true;
             }
         });
@@ -348,7 +369,10 @@ pub fn render_rendering_panel_ui(
                 .selected_text(settings.tonemapping.name())
                 .show_ui(ui, |ui| {
                     for mode in TonemappingMode::all() {
-                        if ui.selectable_label(settings.tonemapping == *mode, mode.name()).clicked() {
+                        if ui
+                            .selectable_label(settings.tonemapping == *mode, mode.name())
+                            .clicked()
+                        {
                             settings.tonemapping = *mode;
                             settings.dirty = true;
                         }
@@ -364,8 +388,17 @@ pub fn render_rendering_panel_ui(
             egui::ComboBox::from_id_salt("shadow_quality")
                 .selected_text(settings.shadow_quality.name())
                 .show_ui(ui, |ui| {
-                    for quality in [ShadowQuality::Off, ShadowQuality::Low, ShadowQuality::Medium, ShadowQuality::High, ShadowQuality::Ultra] {
-                        if ui.selectable_label(settings.shadow_quality == quality, quality.name()).clicked() {
+                    for quality in [
+                        ShadowQuality::Off,
+                        ShadowQuality::Low,
+                        ShadowQuality::Medium,
+                        ShadowQuality::High,
+                        ShadowQuality::Ultra,
+                    ] {
+                        if ui
+                            .selectable_label(settings.shadow_quality == quality, quality.name())
+                            .clicked()
+                        {
                             settings.shadow_quality = quality;
                             settings.dirty = true;
                             settings.preset = RenderingPreset::Custom;
@@ -375,7 +408,10 @@ pub fn render_rendering_panel_ui(
         });
         ui.horizontal(|ui| {
             ui.label("Distance:");
-            if ui.add(egui::Slider::new(&mut settings.shadow_distance, 10.0..=500.0).suffix(" m")).changed() {
+            if ui
+                .add(egui::Slider::new(&mut settings.shadow_distance, 10.0..=500.0).suffix(" m"))
+                .changed()
+            {
                 settings.dirty = true;
             }
         });
@@ -390,13 +426,19 @@ pub fn render_rendering_panel_ui(
         if settings.ao_enabled {
             ui.horizontal(|ui| {
                 ui.label("Intensity:");
-                if ui.add(egui::Slider::new(&mut settings.ao_intensity, 0.0..=1.0)).changed() {
+                if ui
+                    .add(egui::Slider::new(&mut settings.ao_intensity, 0.0..=1.0))
+                    .changed()
+                {
                     settings.dirty = true;
                 }
             });
             ui.horizontal(|ui| {
                 ui.label("Radius:");
-                if ui.add(egui::Slider::new(&mut settings.ao_radius, 0.1..=2.0)).changed() {
+                if ui
+                    .add(egui::Slider::new(&mut settings.ao_radius, 0.1..=2.0))
+                    .changed()
+                {
                     settings.dirty = true;
                 }
             });
@@ -411,7 +453,10 @@ pub fn render_rendering_panel_ui(
                 .selected_text(settings.aa_mode.name())
                 .show_ui(ui, |ui| {
                     for mode in AAMode::all() {
-                        if ui.selectable_label(settings.aa_mode == *mode, mode.name()).clicked() {
+                        if ui
+                            .selectable_label(settings.aa_mode == *mode, mode.name())
+                            .clicked()
+                        {
                             settings.aa_mode = *mode;
                             settings.dirty = true;
                             settings.preset = RenderingPreset::Custom;
@@ -436,13 +481,19 @@ pub fn render_rendering_panel_ui(
                 });
                 ui.horizontal(|ui| {
                     ui.label("Start:");
-                    if ui.add(egui::DragValue::new(&mut settings.fog_start).suffix(" m")).changed() {
+                    if ui
+                        .add(egui::DragValue::new(&mut settings.fog_start).suffix(" m"))
+                        .changed()
+                    {
                         settings.dirty = true;
                     }
                 });
                 ui.horizontal(|ui| {
                     ui.label("End:");
-                    if ui.add(egui::DragValue::new(&mut settings.fog_end).suffix(" m")).changed() {
+                    if ui
+                        .add(egui::DragValue::new(&mut settings.fog_end).suffix(" m"))
+                        .changed()
+                    {
                         settings.dirty = true;
                     }
                 });
@@ -452,11 +503,19 @@ pub fn render_rendering_panel_ui(
         ui.collapsing("🎬 Post-Processing", |ui| {
             // Vignette
             ui.horizontal(|ui| {
-                if ui.checkbox(&mut settings.vignette_enabled, "Vignette").changed() {
+                if ui
+                    .checkbox(&mut settings.vignette_enabled, "Vignette")
+                    .changed()
+                {
                     settings.dirty = true;
                 }
                 if settings.vignette_enabled {
-                    if ui.add(egui::Slider::new(&mut settings.vignette_intensity, 0.0..=1.0).text("")).changed() {
+                    if ui
+                        .add(
+                            egui::Slider::new(&mut settings.vignette_intensity, 0.0..=1.0).text(""),
+                        )
+                        .changed()
+                    {
                         settings.dirty = true;
                     }
                 }
@@ -464,11 +523,20 @@ pub fn render_rendering_panel_ui(
 
             // Film grain
             ui.horizontal(|ui| {
-                if ui.checkbox(&mut settings.film_grain_enabled, "Film Grain").changed() {
+                if ui
+                    .checkbox(&mut settings.film_grain_enabled, "Film Grain")
+                    .changed()
+                {
                     settings.dirty = true;
                 }
                 if settings.film_grain_enabled {
-                    if ui.add(egui::Slider::new(&mut settings.film_grain_intensity, 0.0..=0.5).text("")).changed() {
+                    if ui
+                        .add(
+                            egui::Slider::new(&mut settings.film_grain_intensity, 0.0..=0.5)
+                                .text(""),
+                        )
+                        .changed()
+                    {
                         settings.dirty = true;
                     }
                 }
@@ -476,11 +544,26 @@ pub fn render_rendering_panel_ui(
 
             // Chromatic aberration
             ui.horizontal(|ui| {
-                if ui.checkbox(&mut settings.chromatic_aberration_enabled, "Chromatic Aberration").changed() {
+                if ui
+                    .checkbox(
+                        &mut settings.chromatic_aberration_enabled,
+                        "Chromatic Aberration",
+                    )
+                    .changed()
+                {
                     settings.dirty = true;
                 }
                 if settings.chromatic_aberration_enabled {
-                    if ui.add(egui::Slider::new(&mut settings.chromatic_aberration_intensity, 0.0..=0.1).text("")).changed() {
+                    if ui
+                        .add(
+                            egui::Slider::new(
+                                &mut settings.chromatic_aberration_intensity,
+                                0.0..=0.1,
+                            )
+                            .text(""),
+                        )
+                        .changed()
+                    {
                         settings.dirty = true;
                     }
                 }

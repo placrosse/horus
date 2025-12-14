@@ -29,7 +29,10 @@ extern "C" fn sigterm_handler(_signum: libc::c_int) {
 }
 
 // Import intelligence modules
-use super::executors::{AsyncIOExecutor, AsyncResult, BackgroundExecutor, ParallelExecutor};
+use super::executors::{
+    AsyncIOExecutor, AsyncResult, BackgroundExecutor, IsolatedExecutor, IsolatedNodeConfig,
+    ParallelExecutor,
+};
 use super::fault_tolerance::CircuitBreaker;
 use super::intelligence::{DependencyGraph, ExecutionTier, RuntimeProfiler, TierClassifier};
 use super::jit::CompiledDataflow;
@@ -57,6 +60,42 @@ struct RegisteredNode {
     is_replay_node: bool, // True if this node is replaying recorded data
 }
 
+/// Performance metrics for a scheduler node
+///
+/// Returned by `Scheduler::get_metrics()` to provide performance data
+/// for monitoring and debugging.
+#[derive(Debug, Clone, Default)]
+pub struct SchedulerNodeMetrics {
+    /// Node name
+    pub name: String,
+    /// Node priority (lower = higher priority)
+    pub priority: u32,
+    /// Total number of ticks executed
+    pub total_ticks: u64,
+    /// Number of successful ticks
+    pub successful_ticks: u64,
+    /// Number of failed ticks
+    pub failed_ticks: u64,
+    /// Average tick duration in milliseconds
+    pub avg_tick_duration_ms: f64,
+    /// Maximum tick duration observed
+    pub max_tick_duration_ms: f64,
+    /// Minimum tick duration observed
+    pub min_tick_duration_ms: f64,
+    /// Duration of the last tick
+    pub last_tick_duration_ms: f64,
+    /// Total messages sent by this node
+    pub messages_sent: u64,
+    /// Total messages received by this node
+    pub messages_received: u64,
+    /// Total error count
+    pub errors_count: u64,
+    /// Total warning count
+    pub warnings_count: u64,
+    /// Node uptime in seconds
+    pub uptime_seconds: f64,
+}
+
 /// Central orchestrator: holds nodes, drives the tick loop.
 pub struct Scheduler {
     nodes: Vec<RegisteredNode>,
@@ -75,6 +114,7 @@ pub struct Scheduler {
     async_result_rx: Option<mpsc::UnboundedReceiver<AsyncResult>>,
     async_result_tx: Option<mpsc::UnboundedSender<AsyncResult>>,
     background_executor: Option<BackgroundExecutor>,
+    isolated_executor: Option<IsolatedExecutor>,
     learning_complete: bool,
 
     // JIT compilation for ultra-fast nodes
@@ -169,6 +209,7 @@ impl Scheduler {
             async_result_rx: None,
             async_result_tx: None,
             background_executor: None,
+            isolated_executor: None,
             learning_complete: true, // CHANGED: Default to deterministic (no learning)
 
             // JIT compilation
@@ -1673,6 +1714,9 @@ impl Scheduler {
                     // Setup background executor for low-priority nodes
                     self.setup_background_executor();
 
+                    // Setup isolated executor for fault-tolerant nodes
+                    self.setup_isolated_executor();
+
                     self.learning_complete = true;
                     println!("{}", "=== Optimization Complete ===\n".green());
                 }
@@ -1899,6 +1943,12 @@ impl Scheduler {
                 println!("Background executor shutdown complete");
             }
 
+            // Shutdown isolated executor
+            if let Some(ref mut executor) = self.isolated_executor {
+                executor.shutdown();
+                println!("Isolated executor shutdown complete");
+            }
+
             // Get total tick count from profiler stats
             let total_ticks = self
                 .profiler
@@ -1961,6 +2011,58 @@ impl Scheduler {
         }
         None
     }
+
+    /// Get performance metrics for all nodes
+    ///
+    /// Returns a vector of `SchedulerNodeMetrics` containing performance data
+    /// for each registered node.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let metrics = scheduler.get_metrics();
+    /// for node_metrics in metrics {
+    ///     println!("Node: {}", node_metrics.name);
+    ///     println!("  Avg tick: {:.2}ms", node_metrics.avg_tick_duration_ms);
+    ///     println!("  Total ticks: {}", node_metrics.total_ticks);
+    /// }
+    /// ```
+    pub fn get_metrics(&self) -> Vec<SchedulerNodeMetrics> {
+        self.nodes
+            .iter()
+            .map(|registered| {
+                let name = registered.node.name().to_string();
+                let priority = registered.priority;
+
+                // Get metrics from context if available
+                if let Some(ref ctx) = registered.context {
+                    let m = ctx.metrics();
+                    SchedulerNodeMetrics {
+                        name,
+                        priority,
+                        total_ticks: m.total_ticks,
+                        successful_ticks: m.successful_ticks,
+                        failed_ticks: m.failed_ticks,
+                        avg_tick_duration_ms: m.avg_tick_duration_ms,
+                        max_tick_duration_ms: m.max_tick_duration_ms,
+                        min_tick_duration_ms: m.min_tick_duration_ms,
+                        last_tick_duration_ms: m.last_tick_duration_ms,
+                        messages_sent: m.messages_sent,
+                        messages_received: m.messages_received,
+                        errors_count: m.errors_count,
+                        warnings_count: m.warnings_count,
+                        uptime_seconds: m.uptime_seconds,
+                    }
+                } else {
+                    SchedulerNodeMetrics {
+                        name,
+                        priority,
+                        ..Default::default()
+                    }
+                }
+            })
+            .collect()
+    }
+
     /// Enable/disable logging for a specific node (chainable)
     ///
     /// # Returns
@@ -2411,6 +2513,21 @@ impl Scheduler {
         // Trigger background nodes (low-priority, non-blocking)
         if let Some(ref executor) = self.background_executor {
             executor.tick_all();
+        }
+
+        // Trigger isolated nodes (fault-tolerant, process-isolated)
+        if let Some(ref mut executor) = self.isolated_executor {
+            let results = executor.tick_all();
+            for result in results {
+                if !result.success {
+                    if let Some(ref error) = result.error {
+                        eprintln!("[Isolated] Node {} failed: {}", result.node_name, error);
+                    }
+                    if result.restart_attempted {
+                        println!("[Isolated] Node {} restart attempted", result.node_name);
+                    }
+                }
+            }
         }
 
         // Execute nodes level by level (nodes in same level can run in parallel)
@@ -2914,6 +3031,71 @@ impl Scheduler {
                 }
             }
         }
+    }
+
+    /// Setup isolated executor and move high-failure-rate nodes to it
+    fn setup_isolated_executor(&mut self) {
+        // Create isolated executor with default config
+        let config = IsolatedNodeConfig {
+            max_restarts: 3,
+            restart_delay: std::time::Duration::from_millis(500),
+            response_timeout: std::time::Duration::from_millis(5000),
+            heartbeat_timeout: std::time::Duration::from_secs(10),
+            runner_binary: None, // Use in-process mode by default
+            env_vars: std::collections::HashMap::new(),
+        };
+
+        let mut iso_executor = match IsolatedExecutor::new(config) {
+            Ok(exec) => exec,
+            Err(e) => {
+                eprintln!("[Isolated] Failed to create executor: {}", e);
+                return;
+            }
+        };
+
+        // Identify isolated nodes from classifier
+        if let Some(ref classifier) = self.classifier {
+            let mut nodes_to_move = Vec::new();
+
+            // Find indices of isolated nodes
+            for (idx, registered) in self.nodes.iter().enumerate() {
+                let node_name = registered.node.name();
+
+                // Check if this node is classified as Isolated tier
+                if let Some(tier) = classifier.get_tier(node_name) {
+                    if tier == ExecutionTier::Isolated {
+                        nodes_to_move.push(idx);
+                    }
+                }
+            }
+
+            // Move nodes to isolated executor (in reverse order to maintain indices)
+            for idx in nodes_to_move.into_iter().rev() {
+                // Remove from main scheduler
+                let registered = self.nodes.swap_remove(idx);
+                let node_name = registered.node.name().to_string();
+
+                // Spawn in isolated executor
+                // Use the node name as the factory name (for restart capability)
+                if let Err(e) =
+                    iso_executor.spawn_node(registered.node, &node_name, registered.context)
+                {
+                    eprintln!("Failed to move {} to isolated tier: {}", node_name, e);
+                }
+            }
+
+            if iso_executor.node_count() > 0 {
+                println!(
+                    "[Isolated] Moved {} nodes to process isolation",
+                    iso_executor.node_count()
+                );
+
+                // Start the watchdog for health monitoring
+                iso_executor.start_watchdog();
+            }
+        }
+
+        self.isolated_executor = Some(iso_executor);
     }
 
     /// Configure the scheduler for specific robot types (runtime configuration)

@@ -104,6 +104,11 @@ enum Commands {
         #[arg(short = 'd', long = "drivers", value_delimiter = ',')]
         drivers: Option<Vec<String>>,
 
+        /// Enable capabilities (comma-separated list)
+        /// Example: --enable cuda,editor,python
+        #[arg(short = 'e', long = "enable", value_delimiter = ',')]
+        enable: Option<Vec<String>>,
+
         /// Enable recording for this session
         /// Use 'horus record list' to see recordings
         #[arg(long = "record")]
@@ -166,6 +171,16 @@ enum Commands {
         /// Verbose output
         #[arg(short = 'v', long = "verbose")]
         verbose: bool,
+
+        /// Override detected drivers (comma-separated list)
+        /// Example: --drivers camera,lidar,imu
+        #[arg(short = 'd', long = "drivers", value_delimiter = ',')]
+        drivers: Option<Vec<String>>,
+
+        /// Enable capabilities (comma-separated list)
+        /// Example: --enable cuda,editor,python
+        #[arg(short = 'e', long = "enable", value_delimiter = ',')]
+        enable: Option<Vec<String>>,
     },
 
     /// Build the HORUS project without running
@@ -184,6 +199,16 @@ enum Commands {
         /// Suppress progress indicators
         #[arg(short = 'q', long = "quiet")]
         quiet: bool,
+
+        /// Override detected drivers (comma-separated list)
+        /// Example: --drivers camera,lidar,imu
+        #[arg(short = 'd', long = "drivers", value_delimiter = ',')]
+        drivers: Option<Vec<String>>,
+
+        /// Enable capabilities (comma-separated list)
+        /// Example: --enable cuda,editor,python
+        #[arg(short = 'e', long = "enable", value_delimiter = ',')]
+        enable: Option<Vec<String>>,
     },
 
     /// Monitor running HORUS nodes, topics, and system health
@@ -378,6 +403,10 @@ enum Commands {
         /// World/scene file
         #[arg(long)]
         world: Option<PathBuf>,
+
+        /// Robot name for HORUS topics (e.g., turtlebot.cmd_vel)
+        #[arg(long, default_value = "sim3d_robot")]
+        robot_name: String,
     },
 
     /// Driver management (list, info, search)
@@ -1106,6 +1135,7 @@ fn run_command(command: Commands) -> HorusResult<()> {
             clean,
             quiet,
             drivers,
+            enable,
             args,
             record,
         } => {
@@ -1115,6 +1145,11 @@ fn run_command(command: Commands) -> HorusResult<()> {
             // Store drivers override in environment variable for later use
             if let Some(ref driver_list) = drivers {
                 std::env::set_var("HORUS_DRIVERS", driver_list.join(","));
+            }
+
+            // Store enable capabilities in environment variable for later use
+            if let Some(ref enable_list) = enable {
+                std::env::set_var("HORUS_ENABLE", enable_list.join(","));
             }
 
             // If recording enabled, set environment variable for nodes to pick up
@@ -1137,9 +1172,21 @@ fn run_command(command: Commands) -> HorusResult<()> {
             release,
             clean,
             quiet,
+            drivers,
+            enable,
         } => {
             // Set quiet mode for progress indicators
             horus_manager::progress::set_quiet(quiet);
+
+            // Store drivers override in environment variable for later use
+            if let Some(ref driver_list) = drivers {
+                std::env::set_var("HORUS_DRIVERS", driver_list.join(","));
+            }
+
+            // Store enable capabilities in environment variable for later use
+            if let Some(ref enable_list) = enable {
+                std::env::set_var("HORUS_ENABLE", enable_list.join(","));
+            }
 
             // Build only - compile but don't execute
             commands::run::execute_build_only(files, release, clean)
@@ -2401,7 +2448,19 @@ except ImportError as e:
             no_build,
             no_cleanup,
             verbose,
+            drivers,
+            enable,
         } => {
+            // Store drivers override in environment variable for later use
+            if let Some(ref driver_list) = drivers {
+                std::env::set_var("HORUS_DRIVERS", driver_list.join(","));
+            }
+
+            // Store enable capabilities in environment variable for later use
+            if let Some(ref enable_list) = enable {
+                std::env::set_var("HORUS_ENABLE", enable_list.join(","));
+            }
+
             commands::test::run_tests(
                 filter,
                 release,
@@ -3787,6 +3846,7 @@ except ImportError as e:
             seed,
             robot,
             world,
+            robot_name,
         } => {
             use std::env;
             use std::process::Command;
@@ -3806,6 +3866,7 @@ except ImportError as e:
             if let Some(ref world_path) = world {
                 println!("  World: {}", world_path.display());
             }
+            println!("  HORUS robot name: {}", robot_name);
             println!();
 
             // Convert relative paths to absolute paths before changing directory
@@ -3852,6 +3913,7 @@ except ImportError as e:
                 if let Some(ref w) = world {
                     binary_cmd.arg("--world").arg(w);
                 }
+                binary_cmd.arg("--robot-name").arg(&robot_name);
 
                 binary_cmd
                     .status()
@@ -3886,6 +3948,7 @@ except ImportError as e:
                 if let Some(ref w) = world {
                     cmd.arg("--world").arg(w);
                 }
+                cmd.arg("--robot-name").arg(&robot_name);
 
                 cmd.status()
                     .map_err(|e| HorusError::Config(format!("Failed to run sim3d: {}. Try running manually: cd {} && cargo run --release", e, sim3d_path)))?

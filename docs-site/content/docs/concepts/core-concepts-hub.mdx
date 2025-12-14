@@ -154,50 +154,6 @@ let hub: Hub<SensorData> = Hub::new("sensors@192.168.1.5:8000")?;  // Custom por
 
 See [Communication Transport](/concepts/communication-transport) for detailed comparison and [Network Communication](/concepts/network-communication) for multi-machine setup.
 
-## Hub Architecture
-
-### Memory Layout
-
-The Hub uses a **cache-aligned structure** to prevent false sharing:
-
-```rust
-#[repr(align(64))]
-pub struct Hub<T> {
-    shm_topic: Arc<ShmTopic<T>>,
-    network: Option<Mutex<NetworkBackend<T>>>,
-    is_network: bool,
-    topic_name: String,
-    state: AtomicU8,
-    metrics: Arc<AtomicHubMetrics>,
-    _padding: [u8; 14],
-}
-```
-
-**64-byte alignment**: Matches CPU cache line size for optimal performance
-
-**Atomic state**: Lock-free connection state tracking
-
-**Shared metrics**: Performance counters with atomic operations
-
-**Zero unsafe code**: Safe abstractions over shared memory
-
-### Shared Memory Topic
-
-Internally, Hub uses `ShmTopic<T>` for actual shared memory operations:
-
-```rust
-pub struct ShmTopic<T> {
-    topic_name: String,
-    domain_id: String,
-    _phantom: PhantomData<T>,
-}
-```
-
-Topics are stored in `/dev/shm` with naming convention:
-```
-/dev/shm/horus_{domain_id}_{topic_name}
-```
-
 ## Send and Receive
 
 ### The send() Method

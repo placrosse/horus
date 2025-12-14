@@ -19,7 +19,7 @@ use tracing::{debug, info, warn};
 
 use crate::assets::mesh::{MeshLoadOptions, MeshLoader};
 use crate::assets::resolver::PathResolver;
-use crate::horus_bridge::subscriber::RobotCommandHandler;
+use crate::horus_native::RobotCommandHandler;
 use crate::physics::collider::{ColliderBuilder, ColliderShape};
 use crate::physics::diff_drive::{CmdVel, DifferentialDrive};
 use crate::physics::joints::{
@@ -30,6 +30,7 @@ use crate::physics::rigid_body::RigidBodyComponent;
 use crate::physics::world::PhysicsWorld;
 use crate::robot::gazebo::DifferentialDriveConfig;
 use crate::robot::robot::Robot;
+use crate::systems::horus_comm::HorusRobot;
 
 /// MJCF model loader
 pub struct MJCFLoader {
@@ -1473,6 +1474,9 @@ impl MJCFLoader {
                 diff_drive,
                 CmdVel::default(),
                 RobotCommandHandler::new(&model.name),
+                HorusRobot {
+                    name: model.name.clone(),
+                },
             ));
 
             info!(

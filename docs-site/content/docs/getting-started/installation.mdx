@@ -437,19 +437,24 @@ horus run   # Runs in simulation mode
 # 1. Install system packages on the robot
 sudo apt install libraspberrypi-dev i2c-tools can-utils
 
-# 2. Enable hardware features in YOUR project's Cargo.toml
-# Edit my_robot/Cargo.toml:
-[dependencies]
-horus_library = { version = "0.1", features = ["gpio-hardware", "i2c-hardware"] }
-
-# 3. Build and run on the robot
-cargo build --release
-./target/release/my_robot   # Now uses real hardware!
+# 2. Enable hardware features and run
+horus run --enable gpio,i2c --release
 ```
 
-**OR use command-line flags** (no Cargo.toml edit needed):
+**Or configure in horus.yaml:**
+```yaml
+enable:
+  - gpio
+  - i2c
+```
+
+Then run:
 ```bash
-# On the robot, in your project directory
+horus run --release
+```
+
+**For cargo projects** (not using HORUS CLI):
+```bash
 cargo build --release --features="gpio-hardware,i2c-hardware"
 ```
 

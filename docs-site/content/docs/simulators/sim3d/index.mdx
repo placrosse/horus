@@ -73,13 +73,6 @@ Sim3D automatically creates HORUS topics for robot control and sensor data:
 
 ## Feature Flags
 
-Enable optional features in your `Cargo.toml`:
-
-```toml
-[dependencies]
-sim3d = { version = "0.1.6", features = ["python", "editor"] }
-```
-
 | Feature | Description |
 |---------|-------------|
 | `visual` | Full 3D rendering (default) |
@@ -87,3 +80,37 @@ sim3d = { version = "0.1.6", features = ["python", "editor"] }
 | `editor` | Scene editor UI |
 | `python` | Python bindings for RL training |
 | `full` | All features combined |
+
+### Enabling Features
+
+**Option 1: Command-line flag (recommended)**
+
+```bash
+horus run --enable python,editor
+```
+
+**Option 2: Explicit in horus.yaml**
+
+```yaml
+enable:
+  - python
+  - editor
+```
+
+Then run:
+```bash
+horus sim3d
+```
+
+**Option 3: Manual Cargo.toml (for cargo projects)**
+
+If using `cargo` directly:
+
+```toml
+[dependencies]
+sim3d = { version = "0.1", features = ["python", "editor"] }
+```
+
+```bash
+cargo run -p sim3d --features "python,editor"
+```

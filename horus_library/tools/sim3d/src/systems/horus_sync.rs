@@ -1,8 +1,9 @@
-use bevy::prelude::*;
+//! HORUS Synchronization System
+//!
+//! Provides rate limiting and statistics for HORUS integration.
+//! Uses native HORUS API - no bridge layer.
 
-// Import actual HorusPublisher and HorusSubscriber from horus_bridge
-pub use crate::horus_bridge::publisher::HorusPublisher;
-pub use crate::horus_bridge::subscriber::HorusSubscriber;
+use bevy::prelude::*;
 
 /// Configuration for HORUS synchronization
 #[derive(Resource, Clone)]
@@ -19,8 +20,8 @@ impl Default for HorusSyncConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            publish_rate: 50.0,           // 50 Hz default
-            last_publish: -f32::INFINITY, // Start with negative infinity so first publish always succeeds
+            publish_rate: 50.0,
+            last_publish: -f32::INFINITY,
         }
     }
 }
@@ -51,35 +52,6 @@ impl HorusSyncConfig {
 
     pub fn update_time(&mut self, current_time: f32) {
         self.last_publish = current_time;
-    }
-}
-
-/// Main HORUS synchronization system - coordinates timing and configuration
-pub fn horus_sync_system(
-    time: Res<Time>,
-    mut config: ResMut<HorusSyncConfig>,
-    mut publisher: ResMut<HorusPublisher>,
-    mut subscriber: ResMut<HorusSubscriber>,
-) {
-    let current_time = time.elapsed_secs();
-
-    // Enable/disable publisher and subscriber based on config
-    if config.enabled {
-        publisher.enable();
-        subscriber.enable();
-    } else {
-        publisher.disable();
-        subscriber.disable();
-        return;
-    }
-
-    // Rate limiting for publishing
-    if config.should_publish(current_time) {
-        config.update_time(current_time);
-
-        // Actual publishing is done by the individual publish systems
-        // in horus_bridge/publisher.rs (publish_hframe_system, publish_lidar3d_system, etc.)
-        // This system just coordinates timing and configuration
     }
 }
 
@@ -119,22 +91,6 @@ impl HorusSyncStats {
     }
 }
 
-/// System to track HORUS sync statistics
-pub fn track_horus_sync_stats_system(
-    time: Res<Time>,
-    config: Res<HorusSyncConfig>,
-    mut stats: ResMut<HorusSyncStats>,
-    _publisher: Res<HorusPublisher>,
-) {
-    if !config.enabled {
-        return;
-    }
-
-    // Track that sync is happening
-    // Actual message counts would come from the publisher/subscriber
-    stats.last_publish_time = time.elapsed_secs();
-}
-
 /// Event fired when HORUS sync completes
 #[derive(Event)]
 pub struct HorusSyncEvent {
@@ -158,27 +114,15 @@ pub fn emit_horus_sync_event(
     }
 }
 
-/// Plugin to register HORUS sync systems
-///
-/// Note: HorusPublisher and HorusSubscriber are registered by HorusBridgePlugin,
-/// so they should not be re-registered here.
+/// Plugin to register HORUS sync resources
 pub struct HorusSyncPlugin;
 
 impl Plugin for HorusSyncPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HorusSyncConfig>()
             .init_resource::<HorusSyncStats>()
-            // Note: HorusPublisher and HorusSubscriber are registered by HorusBridgePlugin
             .add_event::<HorusSyncEvent>()
-            .add_systems(
-                Update,
-                (
-                    horus_sync_system,
-                    track_horus_sync_stats_system,
-                    emit_horus_sync_event,
-                )
-                    .chain(),
-            );
+            .add_systems(Update, emit_horus_sync_event);
     }
 }
 

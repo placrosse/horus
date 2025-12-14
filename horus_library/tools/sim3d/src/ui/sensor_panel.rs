@@ -197,12 +197,18 @@ pub fn render_sensor_panel_ui(
 
     // Global controls
     ui.horizontal(|ui| {
-        if ui.checkbox(&mut settings.global_enabled, "All Enabled").changed() {
+        if ui
+            .checkbox(&mut settings.global_enabled, "All Enabled")
+            .changed()
+        {
             for cfg in settings.type_defaults.values_mut() {
                 cfg.enabled = settings.global_enabled;
             }
         }
-        if ui.checkbox(&mut settings.global_visualize, "Visualize").changed() {
+        if ui
+            .checkbox(&mut settings.global_visualize, "Visualize")
+            .changed()
+        {
             for cfg in settings.type_defaults.values_mut() {
                 cfg.visualize = settings.global_visualize;
             }
@@ -222,13 +228,19 @@ pub fn render_sensor_panel_ui(
         egui::ComboBox::from_id_salt("sensor_filter")
             .selected_text(config.type_filter.map_or("All", |t| t.name()))
             .show_ui(ui, |ui| {
-                if ui.selectable_label(config.type_filter.is_none(), "All").clicked() {
+                if ui
+                    .selectable_label(config.type_filter.is_none(), "All")
+                    .clicked()
+                {
                     config.type_filter = None;
                 }
                 ui.separator();
                 for sensor_type in SensorType::all() {
                     let label = format!("{} {}", sensor_type.icon(), sensor_type.name());
-                    if ui.selectable_label(config.type_filter == Some(*sensor_type), label).clicked() {
+                    if ui
+                        .selectable_label(config.type_filter == Some(*sensor_type), label)
+                        .clicked()
+                    {
                         config.type_filter = Some(*sensor_type);
                     }
                 }
@@ -262,19 +274,23 @@ pub fn render_sensor_panel_ui(
 
                         ui.horizontal(|ui| {
                             ui.label("Rate:");
-                            ui.add(egui::DragValue::new(&mut cfg.update_rate_hz)
-                                .range(1.0..=1000.0)
-                                .speed(1.0)
-                                .suffix(" Hz"));
+                            ui.add(
+                                egui::DragValue::new(&mut cfg.update_rate_hz)
+                                    .range(1.0..=1000.0)
+                                    .speed(1.0)
+                                    .suffix(" Hz"),
+                            );
                         });
 
                         ui.horizontal(|ui| {
                             ui.checkbox(&mut cfg.noise_enabled, "Noise");
                             if cfg.noise_enabled {
-                                ui.add(egui::DragValue::new(&mut cfg.noise_stddev)
-                                    .range(0.0..=10.0)
-                                    .speed(0.001)
-                                    .prefix("σ="));
+                                ui.add(
+                                    egui::DragValue::new(&mut cfg.noise_stddev)
+                                        .range(0.0..=10.0)
+                                        .speed(0.001)
+                                        .prefix("σ="),
+                                );
                             }
                         });
 
@@ -293,7 +309,11 @@ pub fn render_sensor_panel_ui(
     });
 }
 
-fn render_advanced_sensor_options(ui: &mut egui::Ui, sensor_type: SensorType, _cfg: &mut SensorConfig) {
+fn render_advanced_sensor_options(
+    ui: &mut egui::Ui,
+    sensor_type: SensorType,
+    _cfg: &mut SensorConfig,
+) {
     ui.separator();
     ui.label("Advanced options:");
 

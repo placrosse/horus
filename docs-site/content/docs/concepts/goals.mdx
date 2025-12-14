@@ -150,7 +150,7 @@ scheduler.run()?;
 
 ### Sharing Across Developers & Organizations
 
-Built your own IMU driver for a specific sensor? **Share it with the community through the HORUS Registry Marketplace**:
+Built your own IMU driver for a specific sensor? **Share it with the community through the HORUS Registry**:
 
 ```bash
 # Publish your package to the registry
@@ -163,7 +163,7 @@ horus pkg list imu-driver
 horus pkg install your-imu-driver
 ```
 
-**The Registry Marketplace enables:**
+**The Registry enables:**
 
 - **Discover packages**: Search thousands of community-contributed nodes
 - **One-command install**: `horus pkg install sensor-fusion` - no manual setup
@@ -263,7 +263,7 @@ scheduler.add(Box::new(CartographerNode::new()?), 2, Some(true));
 
 ### Multi-Robot Systems
 - **Use Case**: Swarm robotics, warehouse fleets, distributed sensing
-- **Why HORUS**: Registry marketplace enables instant code sharing across robot fleets, isolated environments prevent conflicts
+- **Why HORUS**: Registry enables instant code sharing across robot fleets, isolated environments prevent conflicts
 - **Performance**: `.horus` environments isolate dependencies between robot types
 - **Reusability**: Share swarm coordination nodes, formation controllers, and multi-agent algorithms through the registry
 
@@ -291,7 +291,7 @@ HORUS provides:
 - **Reliable dependencies** that work everywhere, every time
 - **One command for everything**: Build, run, deploy - across all languages
 - **Composable robotics**: Install proven components instead of rewriting everything
-- **Knowledge sharing**: Community builds on each other's work through the registry marketplace
+- **Knowledge sharing**: Community builds on each other's work through the registry
 - **Sharing is effortless**: Publishing your node benefits the entire robotics community
 
 We're creating the robotics framework we wish existed when we started - and the ecosystem that makes robotics truly reusable.

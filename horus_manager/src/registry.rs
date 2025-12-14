@@ -1420,7 +1420,10 @@ impl RegistryClient {
             println!("   {}", message);
 
             if error_type == "verification_failed" {
-                println!("\n{}", "The package failed pre-upload verification.".yellow());
+                println!(
+                    "\n{}",
+                    "The package failed pre-upload verification.".yellow()
+                );
                 println!("{}", "Please fix the issues above and try again.".yellow());
 
                 // Show warnings if any
@@ -1447,9 +1450,7 @@ impl RegistryClient {
                 .get("status")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
-            let job_id = verification
-                .get("job_id")
-                .and_then(|v| v.as_str());
+            let job_id = verification.get("job_id").and_then(|v| v.as_str());
 
             match status {
                 "pending" => {

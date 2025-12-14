@@ -38,7 +38,7 @@ content/
    ── cli-reference.mdx
    ── package-management.mdx        # Package install/publish
    ── environment-management.mdx    # Freeze/restore environments
-   ── marketplace.mdx                # Registry and marketplace
+   ── registry.mdx                   # Registry
    ── authentication.mdx             # GitHub OAuth, API keys
    ── remote-deployment.mdx          # Deploy to robots
    ── library-reference.mdx          # Standard library components
@@ -68,7 +68,7 @@ content/
 **Guides**
 - Monitor, Parameters, CLI Reference
 - Package Management, Environment Management
-- Marketplace & Registry, Authentication
+- Registry, Authentication
 - Remote Deployment, Library Reference
 - Message Types, Examples, Performance, Multi-Language
 

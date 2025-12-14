@@ -9,14 +9,21 @@ use bevy_egui::{egui, EguiContexts};
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 
 use crate::hframe::HFrameTree;
+use crate::horus_native::HorusComm;
 use crate::physics::PhysicsWorld;
 use crate::systems::hframe_update::HFramePublisher;
-use crate::systems::horus_sync::HorusSyncStats;
+use crate::systems::horus_sync::{HorusSyncConfig, HorusSyncStats};
+use crate::systems::topic_discovery::{TopicScanner, TopicSubscriptions};
 use crate::ui::controls::{render_controls_ui, SimulationControls, SimulationEvent};
 use crate::ui::hframe_panel::{render_hframe_ui, HFramePanelConfig};
+use crate::ui::horus_panel::{render_horus_panel_ui, HorusPanelConfig};
 use crate::ui::physics_panel::{render_physics_panel_ui, PhysicsPanelConfig, PhysicsParams};
-use crate::ui::recording_panel::{render_recording_panel_ui, RecordingEvent, RecordingPanelConfig, RecordingSettings};
-use crate::ui::rendering_panel::{render_rendering_panel_ui, RenderingPanelConfig, RenderingSettings};
+use crate::ui::recording_panel::{
+    render_recording_panel_ui, RecordingEvent, RecordingPanelConfig, RecordingSettings,
+};
+use crate::ui::rendering_panel::{
+    render_rendering_panel_ui, RenderingPanelConfig, RenderingSettings,
+};
 use crate::ui::sensor_panel::{render_sensor_panel_ui, SensorPanelConfig, SensorSettings};
 use crate::ui::stats_panel::{render_stats_ui, FrameTimeBreakdown, SimulationStats};
 use crate::ui::view_modes::{render_view_modes_ui, CurrentViewMode};
@@ -42,6 +49,8 @@ pub enum DockTab {
     Rendering,
     /// Recording controls
     Recording,
+    /// HORUS communication panel
+    Horus,
     /// Custom plugin tab
     Plugin(String),
 }
@@ -58,6 +67,7 @@ impl DockTab {
             DockTab::Sensors => "Sensors",
             DockTab::Rendering => "Rendering",
             DockTab::Recording => "Recording",
+            DockTab::Horus => "HORUS",
             DockTab::Plugin(name) => name.as_str(),
         }
     }
@@ -107,6 +117,12 @@ pub struct DockRenderContext<'a> {
     pub rendering_panel_config: &'a mut RenderingPanelConfig,
     pub recording_settings: &'a mut RecordingSettings,
     pub recording_panel_config: &'a mut RecordingPanelConfig,
+    // HORUS panel resources
+    pub horus_comm: Option<&'a HorusComm>,
+    pub horus_sync_config: &'a mut HorusSyncConfig,
+    pub horus_panel_config: &'a mut HorusPanelConfig,
+    pub topic_scanner: Option<&'a TopicScanner>,
+    pub topic_subscriptions: Option<&'a mut TopicSubscriptions>,
 }
 
 /// Bundled panel resources to reduce system parameter count
@@ -122,6 +138,12 @@ pub struct PanelResources<'w> {
     pub recording_settings: ResMut<'w, RecordingSettings>,
     pub recording_panel_config: ResMut<'w, RecordingPanelConfig>,
     pub recording_events: EventWriter<'w, RecordingEvent>,
+    // HORUS resources
+    pub horus_comm: Option<Res<'w, HorusComm>>,
+    pub horus_sync_config: ResMut<'w, HorusSyncConfig>,
+    pub horus_panel_config: ResMut<'w, HorusPanelConfig>,
+    pub topic_scanner: Option<Res<'w, TopicScanner>>,
+    pub topic_subscriptions: Option<ResMut<'w, TopicSubscriptions>>,
 }
 
 /// Bundled core UI resources
@@ -202,11 +224,7 @@ impl TabViewer for SimDockViewer<'_> {
             }
             DockTab::Sensors => {
                 // Sensor configuration panel
-                render_sensor_panel_ui(
-                    ui,
-                    self.ctx.sensor_settings,
-                    self.ctx.sensor_panel_config,
-                );
+                render_sensor_panel_ui(ui, self.ctx.sensor_settings, self.ctx.sensor_panel_config);
             }
             DockTab::Rendering => {
                 // Rendering settings panel
@@ -224,6 +242,22 @@ impl TabViewer for SimDockViewer<'_> {
                     self.ctx.recording_panel_config,
                 );
                 self.pending_recording_events.extend(events);
+            }
+            DockTab::Horus => {
+                // HORUS communication panel
+                if let Some(horus_comm) = self.ctx.horus_comm {
+                    render_horus_panel_ui(
+                        ui,
+                        self.ctx.horus_panel_config,
+                        horus_comm,
+                        self.ctx.horus_sync_config,
+                        self.ctx.horus_stats.unwrap_or(&HorusSyncStats::default()),
+                        self.ctx.topic_scanner,
+                        self.ctx.topic_subscriptions.as_deref_mut(),
+                    );
+                } else {
+                    ui.label("HORUS not initialized");
+                }
             }
             DockTab::Plugin(name) => {
                 ui.heading(format!("Plugin: {}", name));
@@ -338,8 +372,13 @@ impl Default for DockWorkspace {
 impl DockWorkspace {
     /// Create workspace with default layout
     pub fn new_default_layout() -> Self {
-        // Start with Stats + Controls + ViewModes as tabs
-        let mut state = DockState::new(vec![DockTab::Stats, DockTab::Controls, DockTab::ViewModes]);
+        // Start with Stats + Controls + ViewModes + HORUS as tabs
+        let mut state = DockState::new(vec![
+            DockTab::Stats,
+            DockTab::Controls,
+            DockTab::ViewModes,
+            DockTab::Horus,
+        ]);
         let tree = state.main_surface_mut();
 
         // Split: Bottom panel (Console + TfTree as tabs)
@@ -590,41 +629,77 @@ pub fn dock_ui_system(
                 ui.menu_button("Panels", |ui| {
                     ui.label("Core");
                     if ui.button("  Controls").clicked() {
-                        workspace.state.main_surface_mut().push_to_focused_leaf(DockTab::Controls);
+                        workspace
+                            .state
+                            .main_surface_mut()
+                            .push_to_focused_leaf(DockTab::Controls);
                         ui.close_menu();
                     }
                     if ui.button("  Statistics").clicked() {
-                        workspace.state.main_surface_mut().push_to_focused_leaf(DockTab::Stats);
+                        workspace
+                            .state
+                            .main_surface_mut()
+                            .push_to_focused_leaf(DockTab::Stats);
                         ui.close_menu();
                     }
                     if ui.button("  Console").clicked() {
-                        workspace.state.main_surface_mut().push_to_focused_leaf(DockTab::Console);
+                        workspace
+                            .state
+                            .main_surface_mut()
+                            .push_to_focused_leaf(DockTab::Console);
                         ui.close_menu();
                     }
                     if ui.button("  HFrame Tree").clicked() {
-                        workspace.state.main_surface_mut().push_to_focused_leaf(DockTab::HFrameTree);
+                        workspace
+                            .state
+                            .main_surface_mut()
+                            .push_to_focused_leaf(DockTab::HFrameTree);
                         ui.close_menu();
                     }
                     if ui.button("  View Modes").clicked() {
-                        workspace.state.main_surface_mut().push_to_focused_leaf(DockTab::ViewModes);
+                        workspace
+                            .state
+                            .main_surface_mut()
+                            .push_to_focused_leaf(DockTab::ViewModes);
                         ui.close_menu();
                     }
                     ui.separator();
                     ui.label("Simulation");
                     if ui.button("  Physics").clicked() {
-                        workspace.state.main_surface_mut().push_to_focused_leaf(DockTab::Physics);
+                        workspace
+                            .state
+                            .main_surface_mut()
+                            .push_to_focused_leaf(DockTab::Physics);
                         ui.close_menu();
                     }
                     if ui.button("  Sensors").clicked() {
-                        workspace.state.main_surface_mut().push_to_focused_leaf(DockTab::Sensors);
+                        workspace
+                            .state
+                            .main_surface_mut()
+                            .push_to_focused_leaf(DockTab::Sensors);
                         ui.close_menu();
                     }
                     if ui.button("  Rendering").clicked() {
-                        workspace.state.main_surface_mut().push_to_focused_leaf(DockTab::Rendering);
+                        workspace
+                            .state
+                            .main_surface_mut()
+                            .push_to_focused_leaf(DockTab::Rendering);
                         ui.close_menu();
                     }
                     if ui.button("  Recording").clicked() {
-                        workspace.state.main_surface_mut().push_to_focused_leaf(DockTab::Recording);
+                        workspace
+                            .state
+                            .main_surface_mut()
+                            .push_to_focused_leaf(DockTab::Recording);
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    ui.label("Communication");
+                    if ui.button("  HORUS").clicked() {
+                        workspace
+                            .state
+                            .main_surface_mut()
+                            .push_to_focused_leaf(DockTab::Horus);
                         ui.close_menu();
                     }
                 });
@@ -661,6 +736,12 @@ pub fn dock_ui_system(
         rendering_panel_config: &mut panel_resources.rendering_panel_config,
         recording_settings: &mut panel_resources.recording_settings,
         recording_panel_config: &mut panel_resources.recording_panel_config,
+        // HORUS panel resources
+        horus_comm: panel_resources.horus_comm.as_deref(),
+        horus_sync_config: &mut panel_resources.horus_sync_config,
+        horus_panel_config: &mut panel_resources.horus_panel_config,
+        topic_scanner: panel_resources.topic_scanner.as_deref(),
+        topic_subscriptions: panel_resources.topic_subscriptions.as_deref_mut(),
     };
 
     // Create tab viewer

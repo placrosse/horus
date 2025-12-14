@@ -5,6 +5,7 @@ pub mod debug_panel;
 pub mod dock;
 pub mod file_dialog;
 pub mod hframe_panel;
+pub mod horus_panel;
 pub mod keybindings;
 pub mod layouts;
 pub mod notifications;

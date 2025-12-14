@@ -153,10 +153,49 @@ horus run [FILE] [OPTIONS] [-- ARGS]
 
 Options:
   -r, --release            Optimize for speed (recommended for benchmarks)
-  -b, --build-only         Compile without running
   -c, --clean              Remove cached build artifacts and dependencies
                            (Use after updating HORUS or when compilation fails)
+  -d, --drivers <LIST>     Override detected drivers (comma-separated)
+                           Example: --drivers camera,lidar,imu
+  -e, --enable <LIST>      Enable capabilities (comma-separated)
+                           Example: --enable cuda,editor,python
   -- <ARGS>                Arguments for your program
+```
+
+### Using --enable for Capabilities
+
+The `--enable` flag lets you quickly enable features without editing `horus.yaml`:
+
+```bash
+# Enable CUDA GPU acceleration
+horus run --enable cuda
+
+# Enable multiple capabilities
+horus run --enable cuda,editor,python
+
+# Combine with hardware features
+horus run --enable gpio,i2c --release
+```
+
+**Available capabilities:**
+
+| Capability | Description |
+|------------|-------------|
+| `cuda`, `gpu` | CUDA GPU acceleration |
+| `editor` | Scene editor UI |
+| `python`, `py` | Python bindings |
+| `headless` | No rendering (for training) |
+| `gpio`, `i2c`, `spi`, `can`, `serial` | Hardware interfaces |
+| `opencv` | OpenCV backend |
+| `realsense` | Intel RealSense support |
+| `full` | All features |
+
+**Or configure in horus.yaml:**
+
+```yaml
+enable:
+  - cuda
+  - editor
 ```
 
 ### Why --release Matters

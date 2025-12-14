@@ -38,7 +38,7 @@ pub mod editor;
 pub mod error;
 pub mod gpu;
 pub mod hframe;
-pub mod horus_bridge;
+pub mod horus_native;
 pub mod multi_robot;
 pub mod physics;
 pub mod plugins;

@@ -10,14 +10,34 @@ The Sim3D Editor provides an interactive scene editing interface for manipulatin
 
 ## Enabling the Editor
 
-The editor is behind a feature flag. Enable it in your `Cargo.toml`:
+The editor is behind a feature flag. There are two ways to enable it:
+
+**Option 1: Command-line flag (recommended)**
+
+```bash
+horus run --enable editor
+```
+
+**Option 2: Explicit in horus.yaml**
+
+```yaml
+enable:
+  - editor
+```
+
+Then run:
+```bash
+horus sim3d
+```
+
+**Option 3: Manual Cargo.toml (for cargo projects)**
+
+If using `cargo` directly:
 
 ```toml
 [dependencies]
 horus_sim3d = { version = "0.1", features = ["editor"] }
 ```
-
-Or run with the feature:
 
 ```bash
 cargo run -p sim3d --features editor

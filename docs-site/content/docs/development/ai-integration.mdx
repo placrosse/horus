@@ -39,10 +39,29 @@ HORUS includes optional OpenCV integration for camera capture and real-time visi
 
 ### Enabling OpenCV
 
-Add to `Cargo.toml`:
+**Option 1: Command-line flag (recommended)**
+
+```bash
+horus run --enable opencv
+```
+
+**Option 2: Explicit in horus.yaml**
+
+```yaml
+enable:
+  - opencv
+```
+
+Then run:
+```bash
+horus run
+```
+
+**Option 3: Manual Cargo.toml (for cargo projects)**
+
 ```toml
 [dependencies]
-horus_library = { version = "0.1.6", features = ["opencv-backend"] }
+horus_library = { version = "0.1", features = ["opencv-backend"] }
 ```
 
 ### Using the Camera Node

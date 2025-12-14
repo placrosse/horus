@@ -54,7 +54,29 @@ Only a 64-byte handle is transferred. Both processes access the **same physical 
 
 ### Build Configuration
 
-Enable the `cuda` feature in your `Cargo.toml`:
+There are three ways to enable CUDA support:
+
+**Option 1: Command-line flag (recommended)**
+
+```bash
+horus run --enable cuda
+```
+
+**Option 2: Explicit in horus.yaml**
+
+```yaml
+enable:
+  - cuda
+```
+
+Then run:
+```bash
+horus run
+```
+
+**Option 3: Manual Cargo.toml (for cargo projects)**
+
+If using `cargo` directly instead of `horus run`:
 
 ```toml
 [dependencies]

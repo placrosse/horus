@@ -6,7 +6,7 @@ order: 17
 
 # Using Pre-Built Nodes
 
-**The HORUS Philosophy:** Don't reinvent the wheel. Use comprehensive, battle-tested nodes from the marketplace and `horus_library`, then configure them to work together.
+**The HORUS Philosophy:** Don't reinvent the wheel. Use comprehensive, battle-tested nodes from the registry and `horus_library`, then configure them to work together.
 
 ## Why Use Pre-Built Nodes?
 
@@ -21,7 +21,7 @@ order: 17
 Instead of writing a PID controller from scratch, just install and configure:
 
 ```bash
-# Install from marketplace
+# Install from registry
 horus pkg install pid-controller
 ```
 
@@ -46,11 +46,11 @@ That's it! Production-ready PID control in 3 lines.
 
 ## Discovering Pre-Built Nodes
 
-### From the Marketplace
+### From the Registry
 
 **Web Interface:**
 ```bash
-# Visit the marketplace in your browser
+# Visit the registry in your browser
 https://marketplace.horus-registry.dev
 ```
 
@@ -95,7 +95,7 @@ EmergencyStopNode, SafetyMonitorNode
 
 ## Installation Patterns
 
-### Installing from HORUS Marketplace
+### Installing from HORUS Registry
 
 ```bash
 # Latest version
@@ -126,15 +126,28 @@ horus pkg install opencv-python
 
 ### Using Standard Library
 
-Add to your `Cargo.toml`:
+The standard library is available automatically with `horus run`:
+
+```bash
+horus run main.rs
+# horus_library is included by default
+```
+
+Or explicitly in `horus.yaml`:
+
+```yaml
+dependencies:
+  - name: horus
+  - name: horus_library
+```
+
+**For cargo projects** (not using `horus run`):
 
 ```toml
 [dependencies]
 horus = "0.1"
 horus_library = "0.1"
 ```
-
-No installation needed - just import and use!
 
 ---
 
@@ -392,7 +405,7 @@ scheduler.add(Box::new(logger), 4, Some(true));
 ## When to Build Custom Nodes
 
 **Use pre-built nodes when:**
--  Functionality exists in marketplace or `horus_library`
+-  Functionality exists in the registry or `horus_library`
 -  Node can be configured to your needs
 -  Performance is acceptable
 
@@ -404,7 +417,7 @@ scheduler.add(Box::new(logger), 4, Some(true));
 **Pro tip:** Even then, consider:
 1. Starting with a similar pre-built node
 2. Forking and modifying it
-3. Publishing your improved version back to the marketplace
+3. Publishing your improved version back to the registry
 
 ---
 
@@ -430,7 +443,7 @@ horus pkg list imu
 
 ### By Category
 
-Browse marketplace by category:
+Browse registry by category:
 - **control** - Motion control, PID, path following
 - **perception** - Sensors, computer vision, SLAM
 - **planning** - Path planning, motion planning

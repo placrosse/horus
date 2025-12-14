@@ -68,7 +68,7 @@ pub mod async_io {
 
 pub use config::{ConfigValue, ExecutionMode, RecordingConfigYaml, RobotPreset, SchedulerConfig};
 pub use safety_monitor::{SafetyMonitor, SafetyState, SafetyStats, WCETEnforcer, Watchdog};
-pub use scheduler::Scheduler;
+pub use scheduler::{Scheduler, SchedulerNodeMetrics};
 
 // Re-export runtime features
 pub use runtime::{
@@ -122,7 +122,10 @@ pub use intelligence::{
 };
 
 // Re-export executors
-pub use executors::{AsyncIOExecutor, AsyncResult, BackgroundExecutor, ParallelExecutor};
+pub use executors::{
+    AsyncIOExecutor, AsyncResult, BackgroundExecutor, IsolatedExecutor, IsolatedNodeConfig,
+    IsolatedNodeStats, IsolatedResult, ParallelExecutor,
+};
 
 // Re-export fault tolerance
 pub use fault_tolerance::{CircuitBreaker, CircuitState};

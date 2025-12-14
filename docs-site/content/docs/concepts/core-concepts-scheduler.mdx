@@ -122,57 +122,52 @@ struct RegisteredNode {
    b. Call shutdown() on all nodes
 ```
 
-### Tick Rate Limitation
+### Tick Rate Configuration
 
-**Important:** HORUS currently has a **hardcoded ~60 FPS tick rate** (~16ms per tick cycle).
+The scheduler tick rate is **fully configurable** via `SchedulerConfig`:
 
-**What this means:**
-- The `tick_rate_fps` field is set to 60 and cannot be changed in the current version
-- Each complete tick cycle (all nodes execute once) takes approximately 16ms
-- Maximum achievable frequency: ~60 Hz
-- This is enforced by a sleep at the end of each tick cycle
-
-**Implications for your nodes:**
 ```rust
-// 10 Hz sensor - supported
-// Executes once every 6 ticks (~100ms)
-impl Node for SlowSensor {
-    fn tick(&mut self, ctx) {
-        // Runs 60 times/sec, but only does work every 6th time
-    }
-}
+use horus::prelude::*;
+use horus::scheduling::config::SchedulerConfig;
 
-//  Works well - 60 Hz control loop
-// Executes every tick (~16ms)
-impl Node for Controller {
-    fn tick(&mut self, ctx) {
-        // Runs at maximum frequency (60 Hz)
-    }
-}
+// Default: 60 Hz (suitable for most robotics applications)
+let scheduler = Scheduler::new();
 
-//  Cannot achieve - 100 Hz+ control
-// Scheduler limited to 60 Hz maximum
-impl Node for HighFrequencyController {
-    fn tick(&mut self, ctx) {
-        // Will only run 60 times/sec, not 100+
-    }
-}
+// Custom tick rate: 1 kHz for high-frequency control
+let config = SchedulerConfig::standard()
+    .with_tick_rate(1000.0);  // 1000 Hz
+let scheduler = Scheduler::new().with_config(config);
+
+// High-performance preset: 10 kHz
+let config = SchedulerConfig::high_performance();  // 10,000 Hz
+let scheduler = Scheduler::new().with_config(config);
+
+// Safety-critical preset: 1 kHz with strict timing
+let config = SchedulerConfig::safety_critical();  // 1,000 Hz
+let scheduler = Scheduler::new().with_config(config);
 ```
 
-**Workaround for higher frequencies:**
-Run nodes in separate processes with their own schedulers. Each process can independently achieve ~60 Hz.
+**Available tick rate presets:**
 
-```bash
-# Process 1: High-frequency sensor (60 Hz max)
-horus run high_freq_sensor.rs &
+| Preset | Tick Rate | Use Case |
+|--------|-----------|----------|
+| Default/Standard | 60 Hz | General robotics, prototyping |
+| Safety-Critical | 1 kHz | Medical, safety systems |
+| High-Performance | 10 kHz | Racing, competition |
+| Hard Real-Time | 1 kHz | CNC, aerospace |
 
-# Process 2: Normal controller (60 Hz max)
-horus run controller.rs &
+**Per-node rate control** is also available when `per_node_rates` is enabled in timing configuration:
 
-# Both run at 60 Hz independently
+```rust
+// Enable per-node rates and set individual node frequencies
+let config = SchedulerConfig::standard();
+let mut scheduler = Scheduler::new().with_config(config);
+
+// Set specific node to run at 100 Hz
+scheduler.set_node_rate("FastSensor", 100.0);
 ```
 
-**Future:** Configurable per-node tick rates and removal of the global 60 FPS limit are planned for future releases.
+See [Scheduler Configuration](/advanced/scheduler-configuration) for complete configuration options.
 
 ## Priority-Based Execution
 
@@ -438,11 +433,15 @@ The scheduler tracks metrics for all nodes:
 ```rust
 let metrics = scheduler.get_metrics();
 
-for node_metrics in metrics {
-    println!("Node: {}", node_metrics.name);
-    println!("  Avg tick: {:.2}ms", node_metrics.avg_tick_duration_ms);
-    println!("  Total ticks: {}", node_metrics.total_ticks);
-    println!("  CPU usage: {:.2}%", node_metrics.cpu_usage_percent);
+for m in metrics {
+    println!("Node: {} (priority: {})", m.name, m.priority);
+    println!("  Total ticks: {} (success: {}, failed: {})",
+             m.total_ticks, m.successful_ticks, m.failed_ticks);
+    println!("  Tick duration: avg={:.2}ms, min={:.2}ms, max={:.2}ms",
+             m.avg_tick_duration_ms, m.min_tick_duration_ms, m.max_tick_duration_ms);
+    println!("  Messages: sent={}, received={}", m.messages_sent, m.messages_received);
+    println!("  Errors: {}, Warnings: {}", m.errors_count, m.warnings_count);
+    println!("  Uptime: {:.2}s", m.uptime_seconds);
 }
 ```
 
@@ -713,9 +712,134 @@ fn tick(&mut self, mut ctx: Option<&mut NodeInfo>) {
 }
 ```
 
+## Scheduler API Reference
+
+### Creation Methods
+
+| Method | Description |
+|--------|-------------|
+| `Scheduler::new()` | Create a new scheduler with default settings (60Hz, sequential) |
+| `Scheduler::new_deterministic()` | Create a deterministic scheduler (reproducible execution) |
+| `Scheduler::new_realtime()` | Create a real-time scheduler with RT priority |
+| `.with_config(config)` | Apply a `SchedulerConfig` preset |
+| `.with_capacity(n)` | Pre-allocate capacity for n nodes |
+| `.with_name(name)` | Set scheduler name for monitoring |
+
+### Node Registration
+
+| Method | Description |
+|--------|-------------|
+| `.add(node, priority, logging)` | Add a node with priority (lower = higher priority) |
+| `.add_with_tier(node, priority, tier)` | Add with explicit execution tier |
+| `.add_rt(node, priority, logging)` | Add as real-time node |
+
+### Execution Control
+
+| Method | Description |
+|--------|-------------|
+| `.run()` | Run continuously until Ctrl+C |
+| `.run_for(Duration)` | Run for a specific duration |
+| `.tick(&[names])` | Execute one tick for specific nodes |
+| `.tick_for(&[names], Duration)` | Execute specific nodes for duration |
+| `.stop()` | Signal scheduler to stop |
+| `.is_running()` | Check if scheduler is running |
+| `.current_tick()` | Get current tick number |
+
+### Per-Node Rate Control
+
+```rust
+// Set individual node tick rates
+scheduler.set_node_rate("FastSensor", 100.0);   // 100 Hz
+scheduler.set_node_rate("SlowLogger", 10.0);    // 10 Hz
+```
+
+### Recording and Replay (Blackbox)
+
+```rust
+// Enable recording for debugging/replay
+let scheduler = Scheduler::new()
+    .enable_recording("my_session");
+
+// Later: replay a recorded session
+let mut replay_scheduler = Scheduler::replay_from(
+    "~/.horus/recordings/my_session".into()
+)?;
+replay_scheduler.run()?;
+
+// List available recordings
+let recordings = Scheduler::list_recordings()?;
+
+// Delete a recording
+Scheduler::delete_recording("old_session")?;
+```
+
+### Metrics and Monitoring
+
+| Method | Description |
+|--------|-------------|
+| `.get_metrics()` | Get `Vec<SchedulerNodeMetrics>` for all nodes |
+| `.get_node_list()` | Get list of registered node names |
+| `.get_node_info(name)` | Get info map for a specific node |
+| `.get_monitoring_summary()` | Get (name, priority) pairs for monitoring |
+| `.set_node_logging(name, enabled)` | Enable/disable logging for a node |
+
+### Real-Time Features (Linux)
+
+```rust
+// Set real-time scheduling priority (requires root/CAP_SYS_NICE)
+scheduler.set_realtime_priority(80)?;
+
+// Pin scheduler to specific CPU core
+scheduler.pin_to_cpu(2)?;
+
+// Lock memory to prevent page faults
+scheduler.lock_memory()?;
+
+// Prefault stack to avoid runtime allocation
+scheduler.prefault_stack(8192)?;
+```
+
+### Topology Validation
+
+```rust
+// Validate pub/sub connections before running
+let warnings = scheduler.validate_topology();
+for warning in warnings {
+    println!("Topology warning: {}", warning);
+}
+
+// Lock topology to prevent changes during execution
+scheduler.lock_topology();
+
+// Check if topology is locked
+if scheduler.is_topology_locked() {
+    println!("Topology is locked");
+}
+
+// Get current topology (publishers, subscribers)
+let (pubs, subs) = scheduler.get_topology();
+```
+
+### Deterministic Execution
+
+```rust
+// Enable deterministic mode (reproducible runs)
+let scheduler = Scheduler::new()
+    .enable_determinism();
+
+// Load execution profile from previous run
+let scheduler = Scheduler::new()
+    .with_profile("my_profile.json")?;
+
+// Enable learning mode (classifier adapts, then save profile)
+let scheduler = Scheduler::new()
+    .enable_learning();
+```
+
 ## Next Steps
 
 - Understand [Shared Memory](/concepts/core-concepts-shared-memory) internals
 - Learn about [Message Types](/concepts/message-types) for communication
 - Explore [Examples](/rust/examples/basic-examples) for complete applications
 - Read the [API Reference](/rust/api) for detailed documentation
+- See [Scheduler Configuration](/advanced/scheduler-configuration) for advanced options

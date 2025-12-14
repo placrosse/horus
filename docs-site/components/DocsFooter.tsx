@@ -83,7 +83,7 @@ export function DocsFooter() {
                   rel="noopener noreferrer"
                   className="text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors inline-flex items-center gap-1"
                 >
-                  Marketplace
+                  Registry
                   <FiExternalLink className="w-3 h-3" />
                 </a>
               </li>

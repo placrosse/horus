@@ -97,7 +97,9 @@ impl PhysicsParams {
         if let Some(nz) = NonZeroUsize::new(self.num_solver_iterations.max(1)) {
             world.integration_parameters.num_solver_iterations = nz;
         }
-        world.integration_parameters.num_additional_friction_iterations = self.num_additional_friction_iterations;
+        world
+            .integration_parameters
+            .num_additional_friction_iterations = self.num_additional_friction_iterations;
         world.integration_parameters.max_ccd_substeps = self.max_ccd_substeps;
         world.integration_parameters.contact_natural_frequency = self.contact_natural_frequency;
         world.integration_parameters.contact_damping_ratio = self.contact_damping_ratio;
@@ -166,19 +168,40 @@ pub fn render_physics_panel_ui(
     ui.collapsing("🌍 Gravity", |ui| {
         ui.horizontal(|ui| {
             ui.label("X:");
-            if ui.add(egui::DragValue::new(&mut params.gravity[0]).speed(0.1).suffix(" m/s²")).changed() {
+            if ui
+                .add(
+                    egui::DragValue::new(&mut params.gravity[0])
+                        .speed(0.1)
+                        .suffix(" m/s²"),
+                )
+                .changed()
+            {
                 params.dirty = true;
             }
         });
         ui.horizontal(|ui| {
             ui.label("Y:");
-            if ui.add(egui::DragValue::new(&mut params.gravity[1]).speed(0.1).suffix(" m/s²")).changed() {
+            if ui
+                .add(
+                    egui::DragValue::new(&mut params.gravity[1])
+                        .speed(0.1)
+                        .suffix(" m/s²"),
+                )
+                .changed()
+            {
                 params.dirty = true;
             }
         });
         ui.horizontal(|ui| {
             ui.label("Z:");
-            if ui.add(egui::DragValue::new(&mut params.gravity[2]).speed(0.1).suffix(" m/s²")).changed() {
+            if ui
+                .add(
+                    egui::DragValue::new(&mut params.gravity[2])
+                        .speed(0.1)
+                        .suffix(" m/s²"),
+                )
+                .changed()
+            {
                 params.dirty = true;
             }
         });
@@ -207,7 +230,14 @@ pub fn render_physics_panel_ui(
         ui.horizontal(|ui| {
             ui.label("Rate:");
             let mut hz_edit = hz;
-            if ui.add(egui::DragValue::new(&mut hz_edit).range(30..=1000).suffix(" Hz")).changed() {
+            if ui
+                .add(
+                    egui::DragValue::new(&mut hz_edit)
+                        .range(30..=1000)
+                        .suffix(" Hz"),
+                )
+                .changed()
+            {
                 params.dt = 1.0 / hz_edit as f32;
                 params.dirty = true;
             }
@@ -236,13 +266,22 @@ pub fn render_physics_panel_ui(
     ui.collapsing("🔧 Solver", |ui| {
         ui.horizontal(|ui| {
             ui.label("Velocity iterations:");
-            if ui.add(egui::DragValue::new(&mut params.num_solver_iterations).range(1..=20)).changed() {
+            if ui
+                .add(egui::DragValue::new(&mut params.num_solver_iterations).range(1..=20))
+                .changed()
+            {
                 params.dirty = true;
             }
         });
         ui.horizontal(|ui| {
             ui.label("Friction iterations:");
-            if ui.add(egui::DragValue::new(&mut params.num_additional_friction_iterations).range(0..=20)).changed() {
+            if ui
+                .add(
+                    egui::DragValue::new(&mut params.num_additional_friction_iterations)
+                        .range(0..=20),
+                )
+                .changed()
+            {
                 params.dirty = true;
             }
         });
@@ -270,7 +309,10 @@ pub fn render_physics_panel_ui(
             }
             ui.horizontal(|ui| {
                 ui.label("Max substeps:");
-                if ui.add(egui::DragValue::new(&mut params.max_ccd_substeps).range(1..=10)).changed() {
+                if ui
+                    .add(egui::DragValue::new(&mut params.max_ccd_substeps).range(1..=10))
+                    .changed()
+                {
                     params.dirty = true;
                 }
             });
@@ -280,13 +322,28 @@ pub fn render_physics_panel_ui(
         ui.collapsing("📞 Contact Parameters", |ui| {
             ui.horizontal(|ui| {
                 ui.label("Natural frequency:");
-                if ui.add(egui::DragValue::new(&mut params.contact_natural_frequency).speed(1.0).range(1.0..=100.0).suffix(" Hz")).changed() {
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut params.contact_natural_frequency)
+                            .speed(1.0)
+                            .range(1.0..=100.0)
+                            .suffix(" Hz"),
+                    )
+                    .changed()
+                {
                     params.dirty = true;
                 }
             });
             ui.horizontal(|ui| {
                 ui.label("Damping ratio:");
-                if ui.add(egui::DragValue::new(&mut params.contact_damping_ratio).speed(0.01).range(0.0..=1.0)).changed() {
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut params.contact_damping_ratio)
+                            .speed(0.01)
+                            .range(0.0..=1.0),
+                    )
+                    .changed()
+                {
                     params.dirty = true;
                 }
             });

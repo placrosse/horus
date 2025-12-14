@@ -9,7 +9,7 @@ use urdf_rs::{Geometry, Joint, Link, Robot as URDFRobot, Visual};
 use crate::assets::mesh::{MeshLoadOptions, MeshLoader};
 use crate::assets::resolver::PathResolver;
 use crate::hframe::HFrameTree;
-use crate::horus_bridge::subscriber::RobotCommandHandler;
+use crate::horus_native::RobotCommandHandler;
 use crate::physics::collider::{ColliderBuilder, ColliderShape};
 use crate::physics::diff_drive::{CmdVel, DifferentialDrive};
 use crate::physics::joints::{
@@ -21,6 +21,7 @@ use crate::physics::world::PhysicsWorld;
 use crate::robot::diff_drive_detector::DiffDriveDetector;
 use crate::robot::gazebo::{DifferentialDriveConfig, GazeboExtensionParser};
 use crate::robot::robot::Robot;
+use crate::systems::horus_comm::HorusRobot;
 use bevy::render::mesh::{Indices, VertexAttributeValues};
 use tracing::info;
 
@@ -368,6 +369,9 @@ impl URDFLoader {
                 diff_drive,
                 CmdVel::default(),
                 RobotCommandHandler::new(&robot_name),
+                HorusRobot {
+                    name: robot_name.clone(),
+                },
             ));
 
             info!(

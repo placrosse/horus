@@ -35,7 +35,7 @@ mod editor;
 mod error;
 mod gpu;
 mod hframe;
-mod horus_bridge;
+mod horus_native;
 mod multi_robot;
 mod physics;
 mod plugins;
@@ -61,11 +61,6 @@ use systems::sensor_update::{SensorSystemSet, SensorUpdatePlugin};
 
 // Import all plugins for integration
 use gpu::GPUAccelerationPlugin;
-use horus_bridge::{
-    core_integration::HorusCorePlugin,
-    horus_transport::{HorusTransportConfig, HorusTransportPlugin},
-    HorusBridgePlugin, HorusTransportSyncPlugin, Sim3dNodePlugin,
-};
 use multi_robot::MultiRobotPlugin;
 use physics::soft_body::SoftBodyPlugin;
 use physics::AdvancedPhysicsPlugin;
@@ -83,7 +78,10 @@ use sensors::{
     segmentation::SegmentationCameraPlugin, tactile::TactileSensorPlugin,
     thermal::ThermalCameraPlugin,
 };
-use systems::{hframe_update::HFrameUpdatePlugin, horus_sync::HorusSyncPlugin};
+use systems::{
+    hframe_update::HFrameUpdatePlugin, horus_comm::HorusCommPlugin, horus_sync::HorusSyncPlugin,
+    topic_discovery::TopicDiscoveryPlugin,
+};
 use view_modes::{
     collision_mode::CollisionVisualizationPlugin, hframe_mode::HFrameVisualizationPlugin,
     physics_mode::PhysicsVisualizationPlugin,
@@ -217,22 +215,11 @@ fn run_visual_mode(cli: Cli) {
 
     // === INTEGRATED PLUGINS ===
 
-    // Configure HORUS transport with CLI args
-    // Note: session_id is deprecated and ignored - all topics use flat namespace
-    #[allow(deprecated)]
-    let transport_config = HorusTransportConfig {
-        session_id: None, // Deprecated field - ignored
-        robot_name: cli.robot_name.clone(),
-        ..Default::default()
-    };
-
-    // Core system plugins
-    app.add_plugins(HorusBridgePlugin::default());
-    app.add_plugins(HorusCorePlugin);
-    app.add_plugins(HorusTransportPlugin::with_config(transport_config));
-    app.add_plugins(HorusTransportSyncPlugin); // Wires publisher buffer to HORUS IPC
-    app.add_plugins(Sim3dNodePlugin::with_robot_name(&cli.robot_name)); // HORUS Node integration
+    // Native HORUS integration - auto-wires all topics
+    app.add_plugins(horus_native::HorusNativePlugin::new(&cli.robot_name));
     app.add_plugins(HorusSyncPlugin);
+    app.add_plugins(HorusCommPlugin);
+    app.add_plugins(TopicDiscoveryPlugin);
     app.add_plugins(HFrameUpdatePlugin);
 
     // Physics plugins
@@ -339,6 +326,7 @@ fn run_visual_mode(cli: Cli) {
         app.add_plugins(ui::sensor_panel::SensorPanelPlugin);
         app.add_plugins(ui::rendering_panel::RenderingPanelPlugin);
         app.add_plugins(ui::recording_panel::RecordingPanelPlugin);
+        app.add_plugins(ui::horus_panel::HorusPanelPlugin);
 
         // Editor plugins (EditorPlugin already includes undo internally)
         app.add_plugins(editor::EditorPlugin);
@@ -367,16 +355,7 @@ fn run_visual_mode(cli: Cli) {
 fn run_headless_mode(cli: Cli) {
     info!("Starting headless mode for RL training");
 
-    // Extract HORUS config from CLI before it's moved into the app
-    // Note: session_id is deprecated and ignored - all topics use flat namespace
-    #[allow(deprecated)]
-    let transport_config = HorusTransportConfig {
-        session_id: None, // Deprecated field - ignored
-        robot_name: cli.robot_name.clone(),
-        ..Default::default()
-    };
     let robot_name = cli.robot_name.clone();
-
     let mut app = App::new();
 
     // Use minimal plugins (no rendering, no input, no audio)
@@ -410,13 +389,11 @@ fn run_headless_mode(cli: Cli) {
 
     // === HEADLESS MODE PLUGINS ===
 
-    // Core system plugins
-    app.add_plugins(HorusBridgePlugin::default());
-    app.add_plugins(HorusCorePlugin);
-    app.add_plugins(HorusTransportPlugin::with_config(transport_config));
-    app.add_plugins(HorusTransportSyncPlugin); // Wires publisher buffer to HORUS IPC
-    app.add_plugins(Sim3dNodePlugin::with_robot_name(&robot_name)); // HORUS Node integration
+    // Native HORUS integration - auto-wires all topics
+    app.add_plugins(horus_native::HorusNativePlugin::new(&robot_name));
     app.add_plugins(HorusSyncPlugin);
+    app.add_plugins(HorusCommPlugin);
+    app.add_plugins(TopicDiscoveryPlugin);
     app.add_plugins(HFrameUpdatePlugin);
 
     // Physics plugins
