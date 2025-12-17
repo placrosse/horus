@@ -27,7 +27,7 @@ You can use any pattern with any transport:
 
 **What**: Linux shared memory (`/dev/shm`) for same-machine IPC
 **When**: All nodes running on the same computer
-**Latency**: Ultra-fast (248ns Link, 481ns Hub)
+**Latency**: Ultra-fast (87ns/248ns Link, 313ns/481ns Hub) - send-only/round-trip
 
 ```rust
 // Automatically uses shared memory
@@ -63,7 +63,9 @@ let link: Link<ImuData> = Link::producer("imu@192.168.1.5:9000")?;
 
 ### Latency
 
-| Transport | Link (SPSC) | Hub (MPMC) | Use Case |
+> **Measurement Note**: Latencies below are **round-trip** (send+receive). For send-only, use approximately half these values.
+
+| Transport | Link (round-trip) | Hub (round-trip) | Use Case |
 |-----------|-------------|------------|----------|
 | **Local SHM** | 248ns | 481ns | Same machine, ultra-low latency |
 | **Network** | 5-15µs | &lt;50µs | Multi-machine, still very fast |

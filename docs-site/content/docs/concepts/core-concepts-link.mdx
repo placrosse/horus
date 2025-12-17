@@ -6,7 +6,7 @@ order: 24
 
 # Link and Point-to-Point Communication
 
-Link is HORUS's ultra-low latency **Single Producer Single Consumer (SPSC)** communication system. It enables two nodes to exchange messages through shared memory with **248ns round-trip latency** - 1.94x faster than Hub.
+Link is HORUS's ultra-low latency **Single Producer Single Consumer (SPSC)** communication system. It enables two nodes to exchange messages through shared memory with **87ns send-only latency** (248ns round-trip) - 1.94x faster than Hub.
 
 ## What is a Link?
 
@@ -14,7 +14,7 @@ A `Link<T>` is a **typed point-to-point channel** that connects exactly one prod
 
 ### Key Features
 
-**Ultra-Low Latency**: 248ns round-trip (vs 481ns for Hub) - the fastest IPC primitive in HORUS
+**Ultra-Low Latency**: 87ns send-only / 248ns round-trip (vs 313ns/481ns for Hub) - the fastest IPC primitive in HORUS
 
 **Lock-Free SPSC**: Single Producer Single Consumer queue with no locks or atomic contention
 
@@ -69,7 +69,7 @@ let output: Link<SensorData> = Link::producer("sensors")?;
 let input: Link<SensorData> = Link::consumer("sensors")?;
 ```
 
-**Performance**: 248ns latency
+**Performance**: 87ns send-only / 248ns round-trip
 **Use case**: All nodes on same machine
 **Pros**: Ultra-fast, deterministic, zero-copy
 
@@ -95,8 +95,9 @@ See [Communication Transport](/concepts/communication-transport) for detailed co
 
 | Feature | Link (SPSC) | Hub (MPMC) |
 |---------|-------------|------------|
-| **Latency** | 248ns | 481ns |
-| **Pattern** | 1 producer  1 consumer | N producers  M consumers |
+| **Latency (send-only)** | 87ns | 313ns |
+| **Latency (round-trip)** | 248ns | 481ns |
+| **Pattern** | 1 producer → 1 consumer | N producers → M consumers |
 | **Use Case** | Control loops, critical paths | General pub/sub, broadcasting |
 | **Complexity** | Lower (no coordination) | Higher (multi-consumer coordination) |
 | **Performance** | 1.94x faster | Flexible but slower |
@@ -316,7 +317,7 @@ link.send(data, &mut ctx)?; // Logs: [NodeName] PUB sensor_data (234ns)
 
 ## Comparison with Other IPC
 
-| System | Latency | Pattern | Notes |
+| System | Latency (round-trip) | Pattern | Notes |
 |--------|---------|---------|-------|
 | **HORUS Link** | 248ns | SPSC | Fastest, specialized |
 | **HORUS Hub** | 481ns | MPMC | More flexible |
@@ -378,7 +379,7 @@ See the full example: `tests/link_drone_app/`
 
 Link provides the **fastest IPC in HORUS** for point-to-point communication:
 
-- **248ns latency**: 1.94x faster than Hub
+- **87ns send-only / 248ns round-trip**: 1.94x faster than Hub
 - **SPSC pattern**: One producer, one consumer
 - **Lock-free**: No mutex overhead
 - **Type-safe**: Compile-time guarantees

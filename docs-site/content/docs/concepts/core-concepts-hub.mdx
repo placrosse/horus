@@ -9,13 +9,13 @@ order: 6
 ## Key Takeaways
 
 After reading this guide, you will understand:
-- How Hub provides zero-copy, lock-free pub/sub communication with sub-microsecond latency (248ns-437ns)
+- How Hub provides zero-copy, lock-free pub/sub communication with sub-microsecond latency (313ns send-only / 481ns round-trip)
 - The send() and recv() methods for publishing and subscribing to typed topics
 - Communication patterns (one-to-one, one-to-many, many-to-one, many-to-many) for different architectures
 - How shared memory in /dev/shm enables processes to communicate without serialization
 - When to use Hub for real-time, single-machine communication vs network-based messaging
 
-The Hub is HORUS's ultra-low latency publish-subscribe (pub/sub) communication system. It enables nodes to exchange messages through shared memory IPC with **248ns-437ns latency** (Link/Hub).
+The Hub is HORUS's ultra-low latency publish-subscribe (pub/sub) communication system. It enables nodes to exchange messages through shared memory IPC with **313ns send-only / 481ns round-trip latency** (vs Link's 87ns/248ns).
 
 ## What is a Hub?
 
@@ -31,7 +31,7 @@ A `Hub<T>` is a **typed communication channel** that connects publishers and sub
 
 **Cache-Aligned**: Optimized memory layout prevents false sharing
 
-**Sub-Microsecond Latency**: 248ns (Link) / 437ns (Hub) for small messages (16B)
+**Sub-Microsecond Latency**: 87ns/248ns (Link) / 313ns/481ns (Hub) send-only/round-trip for small messages (16B)
 
 **Linear Scaling**: Latency scales linearly with message size
 
@@ -134,7 +134,7 @@ Hub supports both local and network transports transparently:
 let hub: Hub<SensorData> = Hub::new("sensors")?;
 ```
 
-**Performance**: 481ns latency
+**Performance**: 313ns send-only / 481ns round-trip
 **Use case**: All nodes on same machine
 **Pros**: Ultra-fast, deterministic, zero-copy
 
@@ -644,14 +644,14 @@ HORUS automatically cleans up when nodes shut down gracefully (Ctrl+C).
 
 ### Latency by Message Size
 
-Based on benchmark data:
+> **Measurement Note**: Latencies below are **round-trip** (send+receive). For send-only latency, see [Benchmarks](/performance/benchmarks).
 
-| Message Type | Size | Latency |
+| Message Type | Size | Latency (round-trip) |
 |--------------|------|---------|
-| CmdVel | 16B | 437ns |
-| IMU | 304B | 718ns |
-| LaserScan | 1.5KB | 1.31µs |
-| PointCloud | 120KB | 2.8µs |
+| CmdVel | 16B | ~481ns |
+| IMU | 304B | ~940ns |
+| LaserScan | 1.5KB | ~2.2µs |
+| PointCloud | 120KB | ~360µs |
 
 **Key Insight**: Latency scales linearly with message size.
 
@@ -666,12 +666,14 @@ HORUS can handle:
 
 HORUS achieves sub-microsecond latency across different message sizes:
 
-| Message Type | Size | HORUS Latency |
+> **Measurement Note**: All latencies are **send-only** (one-direction publish). For round-trip, approximately double these values.
+
+| Message Type | Size | Hub (send-only) |
 |--------------|------|---------------|
-| CmdVel | 16B | 437ns |
-| IMU | 304B | 718ns |
-| LaserScan | 1.5KB | 1.31µs |
-| PointCloud | 120KB | 2.8µs |
+| CmdVel | 16B | ~313ns |
+| IMU | 304B | ~500ns |
+| LaserScan | 1.5KB | ~2.2µs |
+| PointCloud | 120KB | ~360µs |
 
 ## Best Practices
 

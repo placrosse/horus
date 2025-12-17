@@ -49,7 +49,7 @@ pub struct CmdVel {
 ```
 
 **Size:** 16 bytes
-**Latency:** 248ns (Link) / ~500ns (Hub)
+**Latency (round-trip):** 248ns (Link) / ~500ns (Hub)
 
 **Usage:**
 ```rust
@@ -116,7 +116,7 @@ pub struct LaserScan {
 ```
 
 **Size:** 1.5 KB
-**Latency:** ~900ns (Link) / ~2.2µs (Hub)
+**Latency (round-trip):** ~900ns (Link) / ~2.2µs (Hub)
 
 **Usage:**
 ```rust
@@ -149,7 +149,7 @@ pub struct Quaternion {
 ```
 
 **Size:** 304 bytes
-**Latency:** ~400ns (Link) / ~940ns (Hub)
+**Latency (round-trip):** ~400ns (Link) / ~940ns (Hub)
 
 #### `Image`
 Camera image data.
@@ -191,7 +191,7 @@ pub struct Pose {
 ```
 
 **Size:** 736 bytes
-**Latency:** 650ns
+**Latency (round-trip):** ~650ns
 
 #### `Path`
 Navigation path.

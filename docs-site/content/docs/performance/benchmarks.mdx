@@ -1,26 +1,24 @@
 ---
 title: Benchmarks
-description: Research-grade and production-validated performance testing with real robotics workloads
+description: Performance testing with real robotics workloads
 order: 26
 category: "internals"
 ---
 
-# HORUS Benchmarks: Research-Grade & Production-Validated
+# HORUS Benchmarks
 
-**Comprehensive performance validation** combining academic rigor with real-world robotics workloads.
+**Performance validation** with real-world robotics workloads.
 
-## Benchmark Quality Standards
+## Benchmark Methodology
 
-This benchmark suite meets both **research publication standards** and **production validation requirements**:
-
-### Research-Grade Methodology
-- **Statistical rigor**: Criterion.rs with 20+ samples per measurement
+### Measurement Approach
+- **Statistical sampling**: Criterion.rs with 20+ samples per measurement
 - **Confidence intervals**: Min/mean/max with outlier detection
 - **Controlled methodology**: 1s warm-up, 5s measurement phases
-- **Reproducible**: &lt;1% variance across measurements
+- **Reproducible**: Less than 1% variance across measurements
 - **Comprehensive coverage**: 5 workload types, 4 scalability points
 
-### Production Validation
+### Workload Testing
 - **Real workloads**: Control loops, sensor fusion, I/O operations
 - **Fault injection**: Circuit breaker recovery testing
 - **Scale testing**: Validated up to 200 concurrent nodes
@@ -171,7 +169,9 @@ Range:            ~500-1200 ns
 
 ### Latency Comparison
 
-| Framework | Small Msg | Medium Msg | Large Msg |
+> **Measurement Note**: Link values below are **send-only** (one-direction). For round-trip (send+receive), approximately double these values (e.g., 87ns send-only → ~175ns round-trip).
+
+| Framework | Small Msg (send-only) | Medium Msg (send-only) | Large Msg (send-only) |
 |-----------|-----------|------------|-----------|
 | **HORUS Link (SPSC)** | **87 ns** | **~160 ns** | **~400 ns** |
 | **HORUS Hub (MPMC)** | **313 ns** | **~500 ns** | **~1.1 μs** |
@@ -184,7 +184,9 @@ Range:            ~500-1200 ns
 
 ## Latency by Message Size
 
-| Message Size | Message Type | Hub Latency | Link Latency | vs ROS2 |
+> **Measurement Note**: All latencies below are **send-only** (one-direction publish). Hub is lock-free MPMC, Link is wait-free SPSC.
+
+| Message Size | Message Type | Hub (send-only) | Link (send-only) | vs ROS2 |
 |-------------|--------------|-------------|--------------|---------|
 | 16 B | CmdVel | ~313 ns | 87 ns | **230-575x faster** |
 | 104 B | BatteryState | ~600 ns | ~350 ns | **83-286x faster** |
@@ -346,7 +348,7 @@ cargo build --release --bin production_bench
 - Realistic field values and sizes
 - Complex nested structures (IMU, Odometry)
 
-### Statistical Rigor
+### Statistical Methodology
 
 - 10,000 iterations per test
 - Median, P95, P99 latency tracking

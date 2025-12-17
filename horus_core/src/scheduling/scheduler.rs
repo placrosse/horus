@@ -715,7 +715,7 @@ impl Scheduler {
     }
 
     // ============================================================================
-    // Deterministic Topology Validation (copper-rs level guarantees)
+    // Deterministic Topology Validation
     // ============================================================================
 
     /// Validate the system topology before running.

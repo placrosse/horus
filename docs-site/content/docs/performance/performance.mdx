@@ -35,9 +35,9 @@ pub struct Hub<T> {
 
 ### Wait-Free & Lock-Free Operations
 
-**Wait-free Link (SPSC)**: 87ns send latency - no CAS loops, bounded constant time
+**Wait-free Link (SPSC)**: 87ns send-only latency - no CAS loops, bounded constant time
 
-**Lock-free Hub (MPMC)**: 313ns latency - CAS-based for multi-producer coordination
+**Lock-free Hub (MPMC)**: 313ns send-only latency - CAS-based for multi-producer coordination
 
 **Per-consumer tracking**: Each subscriber maintains independent position
 
@@ -45,7 +45,9 @@ pub struct Hub<T> {
 
 ### Measured Latency
 
-| Message Type | Size | HORUS (Hub) | HORUS (Link) | ROS2 DDS | Speedup |
+> **Measurement Note**: All latencies are **send-only** (one-direction publish). For round-trip (send+receive), approximately double these values.
+
+| Message Type | Size | Hub (send-only) | Link (send-only) | ROS2 DDS | Speedup |
 |--------------|------|-------------|--------------|----------|---------|
 | CmdVel | 16B | ~313ns | 87ns | 50-100µs | **230-575x** |
 | IMU | 304B | ~500ns | ~160ns | 80-150µs | **160-940x** |
@@ -351,7 +353,7 @@ HORUS provides optional kernel bypass networking for sub-microsecond latency req
 
 ### Transport Options
 
-| Transport | Latency | Throughput | Requirements |
+| Transport | Latency (send-only) | Throughput | Requirements |
 |-----------|---------|------------|--------------|
 | Shared Memory (Link) | ~87ns | 12M+ msg/s | Local only (wait-free) |
 | Shared Memory (Hub) | ~313ns | 3M+ msg/s | Local only (lock-free) |

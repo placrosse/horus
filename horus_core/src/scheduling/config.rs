@@ -270,7 +270,7 @@ pub enum RobotPreset {
     Custom,
 }
 
-/// Deterministic execution configuration for copper-rs level guarantees
+/// Deterministic execution configuration
 ///
 /// This enables strict topology validation and deterministic execution order,
 /// providing guarantees similar to compile-time scheduled systems.
@@ -313,7 +313,7 @@ impl Default for DeterministicConfig {
 }
 
 impl DeterministicConfig {
-    /// Full determinism - all guarantees enabled (copper-rs level)
+    /// Full determinism - all guarantees enabled
     pub fn strict() -> Self {
         Self {
             strict_topology: true,
@@ -369,7 +369,7 @@ pub struct SchedulerConfig {
     /// for exotic robot types (quantum, biological, hybrid, etc.)
     pub custom: HashMap<String, ConfigValue>,
 
-    /// Deterministic execution configuration (copper-rs level guarantees)
+    /// Deterministic execution configuration
     /// When Some, enables strict topology validation and deterministic execution
     pub deterministic: Option<DeterministicConfig>,
 
@@ -454,7 +454,7 @@ impl SchedulerConfig {
         }
     }
 
-    /// Deterministic configuration with copper-rs level guarantees
+    /// Deterministic configuration
     ///
     /// Enables:
     /// - Static execution order (computed once at startup)

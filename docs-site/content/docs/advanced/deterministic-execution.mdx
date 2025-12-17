@@ -112,7 +112,7 @@ let mut scheduler = Scheduler::new()
 
 ### Level 4: Determinism + Topology Validation
 
-Use `SchedulerConfig::deterministic()` for formal verification and copper-rs level guarantees:
+Use `SchedulerConfig::deterministic()` for formal verification and deterministic guarantees:
 
 ```rust
 use horus::scheduling::config::SchedulerConfig;
@@ -180,7 +180,7 @@ pub struct DeterministicConfig {
 ### Presets
 
 ```rust
-// Full determinism (copper-rs level)
+// Full determinism
 DeterministicConfig::strict()
 
 // Just static execution order, no topology validation
