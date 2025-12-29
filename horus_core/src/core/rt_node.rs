@@ -305,4 +305,8 @@ impl Node for RTNodeWrapper {
     fn shutdown(&mut self, ctx: &mut NodeInfo) -> crate::error::HorusResult<()> {
         self.node.shutdown(ctx)
     }
+
+    fn rate_hz(&self) -> Option<f64> {
+        self.node.rate_hz()
+    }
 }

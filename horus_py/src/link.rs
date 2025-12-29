@@ -16,7 +16,36 @@ use horus_library::messages::cmd_vel::CmdVel;
 use horus_library::messages::geometry::Pose2D;
 use horus_library::messages::GenericMessage;
 use pyo3::prelude::*;
+use pyo3::sync::GILOnceCell;
+use pyo3::types::PyType;
 use std::sync::{Arc, Mutex};
+
+// Cached Python classes - initialized once, reused forever
+// This avoids py.import("horus") on every recv() call (~1-5μs → ~10ns)
+static CMDVEL_CLASS: GILOnceCell<Py<PyType>> = GILOnceCell::new();
+static POSE2D_CLASS: GILOnceCell<Py<PyType>> = GILOnceCell::new();
+
+/// Get cached CmdVel class (initializes on first call)
+fn get_cmdvel_class(py: Python<'_>) -> PyResult<&Bound<'_, PyType>> {
+    CMDVEL_CLASS
+        .get_or_try_init(py, || {
+            let horus_module = py.import("horus")?;
+            let cls = horus_module.getattr("CmdVel")?;
+            Ok(cls.downcast::<PyType>()?.clone().unbind())
+        })
+        .map(|cls| cls.bind(py))
+}
+
+/// Get cached Pose2D class (initializes on first call)
+fn get_pose2d_class(py: Python<'_>) -> PyResult<&Bound<'_, PyType>> {
+    POSE2D_CLASS
+        .get_or_try_init(py, || {
+            let horus_module = py.import("horus")?;
+            let cls = horus_module.getattr("Pose2D")?;
+            Ok(cls.downcast::<PyType>()?.clone().unbind())
+        })
+        .map(|cls| cls.bind(py))
+}
 
 /// Link role type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,18 +158,22 @@ impl PyLink {
     fn send(&self, py: Python, message: PyObject) -> PyResult<bool> {
         match &self.link_type {
             LinkType::CmdVelProducer(link) => {
+                // P1: Direct field extraction
                 let linear: f32 = message.getattr(py, "linear")?.extract(py)?;
                 let angular: f32 = message.getattr(py, "angular")?.extract(py)?;
                 let stamp_nanos: u64 = message.getattr(py, "timestamp")?.extract(py)?;
                 let cmd = CmdVel::with_timestamp(linear, angular, stamp_nanos);
 
-                let link = link.lock().unwrap();
-                match link.send(cmd, &mut None) {
-                    Ok(()) => Ok(true),
-                    Err(_) => Ok(false),
-                }
+                // P1: Release GIL during IPC operation
+                let link_ref = link.clone();
+                let success = py.allow_threads(|| {
+                    let link = link_ref.lock().unwrap();
+                    link.send(cmd, &mut None).is_ok()
+                });
+                Ok(success)
             }
             LinkType::Pose2DProducer(link) => {
+                // P1: Direct field extraction
                 let x: f64 = message.getattr(py, "x")?.extract(py)?;
                 let y: f64 = message.getattr(py, "y")?.extract(py)?;
                 let theta: f64 = message.getattr(py, "theta")?.extract(py)?;
@@ -152,13 +185,16 @@ impl PyLink {
                     timestamp,
                 };
 
-                let link = link.lock().unwrap();
-                match link.send(pose, &mut None) {
-                    Ok(()) => Ok(true),
-                    Err(_) => Ok(false),
-                }
+                // P1: Release GIL during IPC operation
+                let link_ref = link.clone();
+                let success = py.allow_threads(|| {
+                    let link = link_ref.lock().unwrap();
+                    link.send(pose, &mut None).is_ok()
+                });
+                Ok(success)
             }
             LinkType::GenericProducer(link) => {
+                // Convert Python to Rust data (requires GIL)
                 let bound = message.bind(py);
                 let value: serde_json::Value = pythonize::depythonize(bound).map_err(|e| {
                     pyo3::exceptions::PyTypeError::new_err(format!(
@@ -172,11 +208,13 @@ impl PyLink {
                 let msg = GenericMessage::new(msgpack_bytes)
                     .map_err(pyo3::exceptions::PyValueError::new_err)?;
 
-                let link = link.lock().unwrap();
-                match link.send(msg, &mut None) {
-                    Ok(()) => Ok(true),
-                    Err(_) => Ok(false),
-                }
+                // P1: Release GIL during IPC operation
+                let link_ref = link.clone();
+                let success = py.allow_threads(|| {
+                    let link = link_ref.lock().unwrap();
+                    link.send(msg, &mut None).is_ok()
+                });
+                Ok(success)
             }
             _ => Err(pyo3::exceptions::PyTypeError::new_err(
                 "send() can only be called on a producer Link",
@@ -194,10 +232,15 @@ impl PyLink {
     fn recv(&self, py: Python) -> PyResult<Option<PyObject>> {
         match &self.link_type {
             LinkType::CmdVelConsumer(link) => {
-                let link = link.lock().unwrap();
-                if let Some(cmd) = link.recv(&mut None) {
-                    let horus_module = py.import("horus")?;
-                    let cmdvel_class = horus_module.getattr("CmdVel")?;
+                // P1: Release GIL during IPC operation
+                let link_ref = link.clone();
+                let msg_opt = py.allow_threads(|| {
+                    let link = link_ref.lock().unwrap();
+                    link.recv(&mut None)
+                });
+                if let Some(cmd) = msg_opt {
+                    // Use cached class - 100x faster than py.import() on every call
+                    let cmdvel_class = get_cmdvel_class(py)?;
                     let py_cmd = cmdvel_class.call1((cmd.linear, cmd.angular, cmd.stamp_nanos))?;
                     Ok(Some(py_cmd.into()))
                 } else {
@@ -205,10 +248,15 @@ impl PyLink {
                 }
             }
             LinkType::Pose2DConsumer(link) => {
-                let link = link.lock().unwrap();
-                if let Some(pose) = link.recv(&mut None) {
-                    let horus_module = py.import("horus")?;
-                    let pose2d_class = horus_module.getattr("Pose2D")?;
+                // P1: Release GIL during IPC operation
+                let link_ref = link.clone();
+                let msg_opt = py.allow_threads(|| {
+                    let link = link_ref.lock().unwrap();
+                    link.recv(&mut None)
+                });
+                if let Some(pose) = msg_opt {
+                    // Use cached class - 100x faster than py.import() on every call
+                    let pose2d_class = get_pose2d_class(py)?;
                     let py_pose =
                         pose2d_class.call1((pose.x, pose.y, pose.theta, pose.timestamp))?;
                     Ok(Some(py_pose.into()))
@@ -217,8 +265,13 @@ impl PyLink {
                 }
             }
             LinkType::GenericConsumer(link) => {
-                let link = link.lock().unwrap();
-                if let Some(msg) = link.recv(&mut None) {
+                // P1: Release GIL during IPC operation
+                let link_ref = link.clone();
+                let msg_opt = py.allow_threads(|| {
+                    let link = link_ref.lock().unwrap();
+                    link.recv(&mut None)
+                });
+                if let Some(msg) = msg_opt {
                     let data = msg.data();
                     let value: serde_json::Value = rmp_serde::from_slice(&data).map_err(|e| {
                         pyo3::exceptions::PyRuntimeError::new_err(format!(

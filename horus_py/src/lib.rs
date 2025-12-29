@@ -12,6 +12,7 @@ mod config;
 mod hframe;
 mod hub;
 mod link;
+mod messages;
 mod node;
 mod router;
 mod scheduler;
@@ -68,6 +69,9 @@ fn _horus(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Tensor system - zero-copy shared memory tensors
     tensor::register_tensor_classes(m)?;
+
+    // Message types for typed Hub communication
+    messages::register_message_classes(m)?;
 
     // Typed hubs now handled by polymorphic Hub class
     // typed_hub::register_typed_hubs(m)?;  // Old implementation - replaced

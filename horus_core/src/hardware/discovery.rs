@@ -24,11 +24,23 @@ use super::serial::{SerialDiscovery, SerialPort};
 use super::usb::{UsbDevice, UsbDiscovery};
 
 #[cfg(target_os = "linux")]
+use super::audio::{AudioCard, AudioDiscovery};
+#[cfg(target_os = "linux")]
+use super::bluetooth::{BluetoothAdapter, BluetoothDiscovery};
+#[cfg(target_os = "linux")]
 use super::camera::{Camera, CameraDiscovery};
+#[cfg(target_os = "linux")]
+use super::can::{CanDiscovery, CanInterface};
 #[cfg(target_os = "linux")]
 use super::gpio::{GpioChip, GpioDiscovery};
 #[cfg(target_os = "linux")]
 use super::i2c::{I2cBus, I2cDevice, I2cDiscovery};
+#[cfg(target_os = "linux")]
+use super::network::{NetworkDiscovery, NetworkInterface};
+#[cfg(target_os = "linux")]
+use super::pwm::{PwmChip, PwmDiscovery};
+#[cfg(target_os = "linux")]
+use super::spi::{SpiBus, SpiDiscovery};
 
 /// Execute a probing operation with a timeout.
 /// Returns None if the operation times out or fails.
@@ -196,14 +208,38 @@ pub struct DiscoveryReport {
     #[cfg(target_os = "linux")]
     #[serde(skip)]
     pub i2c_devices: Vec<I2cDevice>,
+    /// SPI buses (Linux only)
+    #[cfg(target_os = "linux")]
+    #[serde(skip)]
+    pub spi_buses: Vec<SpiBus>,
+    /// CAN interfaces (Linux only)
+    #[cfg(target_os = "linux")]
+    #[serde(skip)]
+    pub can_interfaces: Vec<CanInterface>,
     /// GPIO chips (Linux only)
     #[cfg(target_os = "linux")]
     #[serde(skip)]
     pub gpio_chips: Vec<GpioChip>,
+    /// PWM chips (Linux only)
+    #[cfg(target_os = "linux")]
+    #[serde(skip)]
+    pub pwm_chips: Vec<PwmChip>,
     /// Cameras (Linux only)
     #[cfg(target_os = "linux")]
     #[serde(skip)]
     pub cameras: Vec<Camera>,
+    /// Bluetooth adapters (Linux only)
+    #[cfg(target_os = "linux")]
+    #[serde(skip)]
+    pub bluetooth_adapters: Vec<BluetoothAdapter>,
+    /// Network interfaces (Linux only)
+    #[cfg(target_os = "linux")]
+    #[serde(skip)]
+    pub network_interfaces: Vec<NetworkInterface>,
+    /// Audio cards (Linux only)
+    #[cfg(target_os = "linux")]
+    #[serde(skip)]
+    pub audio_cards: Vec<AudioCard>,
     /// All discovered devices with driver matching
     pub all_devices: Vec<DiscoveredDevice>,
     /// Discovery duration in milliseconds
@@ -253,17 +289,41 @@ impl DiscoveryReport {
             #[cfg(target_os = "linux")]
             i2c_device_count: self.i2c_devices.len(),
             #[cfg(target_os = "linux")]
+            spi_bus_count: self.spi_buses.len(),
+            #[cfg(target_os = "linux")]
+            can_interface_count: self.can_interfaces.len(),
+            #[cfg(target_os = "linux")]
             gpio_chip_count: self.gpio_chips.len(),
             #[cfg(target_os = "linux")]
+            pwm_chip_count: self.pwm_chips.len(),
+            #[cfg(target_os = "linux")]
             camera_count: self.cameras.len(),
+            #[cfg(target_os = "linux")]
+            bluetooth_count: self.bluetooth_adapters.len(),
+            #[cfg(target_os = "linux")]
+            network_count: self.network_interfaces.len(),
+            #[cfg(target_os = "linux")]
+            audio_count: self.audio_cards.len(),
             #[cfg(not(target_os = "linux"))]
             i2c_bus_count: 0,
             #[cfg(not(target_os = "linux"))]
             i2c_device_count: 0,
             #[cfg(not(target_os = "linux"))]
+            spi_bus_count: 0,
+            #[cfg(not(target_os = "linux"))]
+            can_interface_count: 0,
+            #[cfg(not(target_os = "linux"))]
             gpio_chip_count: 0,
             #[cfg(not(target_os = "linux"))]
+            pwm_chip_count: 0,
+            #[cfg(not(target_os = "linux"))]
             camera_count: 0,
+            #[cfg(not(target_os = "linux"))]
+            bluetooth_count: 0,
+            #[cfg(not(target_os = "linux"))]
+            network_count: 0,
+            #[cfg(not(target_os = "linux"))]
+            audio_count: 0,
             total_devices: self.all_devices.len(),
             devices_with_drivers: self.devices_with_drivers().len(),
             category_counts,
@@ -285,10 +345,22 @@ pub struct DiscoverySummary {
     pub i2c_bus_count: usize,
     /// I2C device count
     pub i2c_device_count: usize,
+    /// SPI bus count
+    pub spi_bus_count: usize,
+    /// CAN interface count
+    pub can_interface_count: usize,
     /// GPIO chip count
     pub gpio_chip_count: usize,
+    /// PWM chip count
+    pub pwm_chip_count: usize,
     /// Camera count
     pub camera_count: usize,
+    /// Bluetooth adapter count
+    pub bluetooth_count: usize,
+    /// Network interface count
+    pub network_count: usize,
+    /// Audio card count
+    pub audio_count: usize,
     /// Total discovered devices
     pub total_devices: usize,
     /// Devices with driver suggestions
@@ -312,10 +384,22 @@ pub struct DiscoveryOptions {
     pub scan_i2c: bool,
     /// Probe I2C addresses (may interfere with some devices)
     pub probe_i2c: bool,
+    /// Scan SPI buses
+    pub scan_spi: bool,
+    /// Scan CAN interfaces
+    pub scan_can: bool,
     /// Scan GPIO chips
     pub scan_gpio: bool,
+    /// Scan PWM chips
+    pub scan_pwm: bool,
     /// Scan cameras
     pub scan_cameras: bool,
+    /// Scan Bluetooth adapters
+    pub scan_bluetooth: bool,
+    /// Scan network interfaces
+    pub scan_network: bool,
+    /// Scan audio devices
+    pub scan_audio: bool,
     /// Timeout for probing operations
     pub probe_timeout: Duration,
 }
@@ -327,8 +411,14 @@ impl Default for DiscoveryOptions {
             scan_serial: true,
             scan_i2c: true,
             probe_i2c: false, // Off by default - can interfere with devices
+            scan_spi: true,
+            scan_can: true,
             scan_gpio: true,
+            scan_pwm: true,
             scan_cameras: true,
+            scan_bluetooth: true,
+            scan_network: true,
+            scan_audio: true,
             probe_timeout: Duration::from_millis(100),
         }
     }
@@ -343,12 +433,30 @@ pub struct HardwareDiscovery {
     /// I2C discovery (Linux only)
     #[cfg(target_os = "linux")]
     i2c_discovery: I2cDiscovery,
+    /// SPI discovery (Linux only)
+    #[cfg(target_os = "linux")]
+    spi_discovery: SpiDiscovery,
+    /// CAN discovery (Linux only)
+    #[cfg(target_os = "linux")]
+    can_discovery: CanDiscovery,
     /// GPIO discovery (Linux only)
     #[cfg(target_os = "linux")]
     gpio_discovery: GpioDiscovery,
+    /// PWM discovery (Linux only)
+    #[cfg(target_os = "linux")]
+    pwm_discovery: PwmDiscovery,
     /// Camera discovery (Linux only)
     #[cfg(target_os = "linux")]
     camera_discovery: CameraDiscovery,
+    /// Bluetooth discovery (Linux only)
+    #[cfg(target_os = "linux")]
+    bluetooth_discovery: BluetoothDiscovery,
+    /// Network discovery (Linux only)
+    #[cfg(target_os = "linux")]
+    network_discovery: NetworkDiscovery,
+    /// Audio discovery (Linux only)
+    #[cfg(target_os = "linux")]
+    audio_discovery: AudioDiscovery,
     /// Device database
     database: DeviceDatabase,
     /// Discovery options
@@ -364,9 +472,21 @@ impl HardwareDiscovery {
             #[cfg(target_os = "linux")]
             i2c_discovery: I2cDiscovery::new(),
             #[cfg(target_os = "linux")]
+            spi_discovery: SpiDiscovery::new(),
+            #[cfg(target_os = "linux")]
+            can_discovery: CanDiscovery::new(),
+            #[cfg(target_os = "linux")]
             gpio_discovery: GpioDiscovery::new(),
             #[cfg(target_os = "linux")]
+            pwm_discovery: PwmDiscovery::new(),
+            #[cfg(target_os = "linux")]
             camera_discovery: CameraDiscovery::new(),
+            #[cfg(target_os = "linux")]
+            bluetooth_discovery: BluetoothDiscovery::new(),
+            #[cfg(target_os = "linux")]
+            network_discovery: NetworkDiscovery::new(),
+            #[cfg(target_os = "linux")]
+            audio_discovery: AudioDiscovery::new(),
             database: DeviceDatabase::new(),
             options: DiscoveryOptions::default(),
         })
@@ -452,13 +572,25 @@ impl HardwareDiscovery {
         #[cfg(target_os = "linux")]
         let i2c_devices: Vec<I2cDevice>;
         #[cfg(target_os = "linux")]
+        let spi_buses: Vec<SpiBus>;
+        #[cfg(target_os = "linux")]
+        let can_interfaces: Vec<CanInterface>;
+        #[cfg(target_os = "linux")]
         let gpio_chips: Vec<GpioChip>;
         #[cfg(target_os = "linux")]
+        let pwm_chips: Vec<PwmChip>;
+        #[cfg(target_os = "linux")]
         let cameras: Vec<Camera>;
+        #[cfg(target_os = "linux")]
+        let bluetooth_adapters: Vec<BluetoothAdapter>;
+        #[cfg(target_os = "linux")]
+        let network_interfaces: Vec<NetworkInterface>;
+        #[cfg(target_os = "linux")]
+        let audio_cards: Vec<AudioCard>;
 
         #[cfg(target_os = "linux")]
         {
-            report_progress("I2C buses", 3, 6);
+            report_progress("I2C buses", 3, 12);
             i2c_buses = if self.options.scan_i2c {
                 probe_vec_with_timeout(timeout * 3, || I2cDiscovery::new().enumerate_buses())
             } else {
@@ -473,23 +605,69 @@ impl HardwareDiscovery {
                 Vec::new()
             };
 
-            report_progress("GPIO chips", 4, 6);
-            gpio_chips = if self.options.scan_gpio {
-                probe_vec_with_timeout(timeout * 3, || GpioDiscovery::new().enumerate())
+            report_progress("SPI buses", 4, 12);
+            spi_buses = if self.options.scan_spi {
+                probe_vec_with_timeout(timeout * 3, || SpiDiscovery::new().enumerate_buses())
             } else {
                 Vec::new()
             };
 
-            report_progress("Cameras", 5, 6);
+            report_progress("CAN interfaces", 5, 12);
+            can_interfaces = if self.options.scan_can {
+                probe_vec_with_timeout(timeout * 3, || CanDiscovery::new().enumerate_interfaces())
+            } else {
+                Vec::new()
+            };
+
+            report_progress("GPIO chips", 6, 12);
+            gpio_chips = if self.options.scan_gpio {
+                probe_vec_with_timeout(timeout * 3, || GpioDiscovery::new().enumerate_with_lines())
+            } else {
+                Vec::new()
+            };
+
+            report_progress("PWM chips", 7, 12);
+            pwm_chips = if self.options.scan_pwm {
+                probe_vec_with_timeout(timeout * 3, || PwmDiscovery::new().enumerate_chips())
+            } else {
+                Vec::new()
+            };
+
+            report_progress("Cameras", 8, 12);
             cameras = if self.options.scan_cameras {
                 // Camera probing can hang on faulty V4L2 devices - use timeout
                 probe_vec_with_timeout(timeout * 5, || CameraDiscovery::new().enumerate())
             } else {
                 Vec::new()
             };
+
+            report_progress("Bluetooth adapters", 9, 12);
+            bluetooth_adapters = if self.options.scan_bluetooth {
+                probe_vec_with_timeout(timeout * 3, || {
+                    BluetoothDiscovery::new().enumerate_adapters()
+                })
+            } else {
+                Vec::new()
+            };
+
+            report_progress("Network interfaces", 10, 12);
+            network_interfaces = if self.options.scan_network {
+                probe_vec_with_timeout(timeout * 3, || {
+                    NetworkDiscovery::new().enumerate_interfaces()
+                })
+            } else {
+                Vec::new()
+            };
+
+            report_progress("Audio devices", 11, 12);
+            audio_cards = if self.options.scan_audio {
+                probe_vec_with_timeout(timeout * 3, || AudioDiscovery::new().enumerate_cards())
+            } else {
+                Vec::new()
+            };
         }
 
-        report_progress("Processing results", 6, 6);
+        report_progress("Processing results", 12, 12);
 
         // Build all_devices list using parallel processing
         let mut all_devices: Vec<DiscoveredDevice> = Vec::new();
@@ -613,9 +791,21 @@ impl HardwareDiscovery {
             #[cfg(target_os = "linux")]
             i2c_devices,
             #[cfg(target_os = "linux")]
+            spi_buses,
+            #[cfg(target_os = "linux")]
+            can_interfaces,
+            #[cfg(target_os = "linux")]
             gpio_chips,
             #[cfg(target_os = "linux")]
+            pwm_chips,
+            #[cfg(target_os = "linux")]
             cameras,
+            #[cfg(target_os = "linux")]
+            bluetooth_adapters,
+            #[cfg(target_os = "linux")]
+            network_interfaces,
+            #[cfg(target_os = "linux")]
+            audio_cards,
             all_devices,
             duration,
             errors,
@@ -630,8 +820,14 @@ impl HardwareDiscovery {
             scan_serial: true,
             scan_i2c: false,
             probe_i2c: false,
+            scan_spi: false,
+            scan_can: false,
             scan_gpio: false,
+            scan_pwm: false,
             scan_cameras: false,
+            scan_bluetooth: false,
+            scan_network: false,
+            scan_audio: false,
             probe_timeout: Duration::from_millis(50),
         };
 

@@ -4,7 +4,7 @@
 
 use std::fs;
 use std::os::unix::io::AsRawFd;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// I2C bus information
 #[derive(Debug, Clone)]

@@ -2480,148 +2480,150 @@ if [ "$PYTHON_AVAILABLE" = true ]; then
 
     HORUS_PY_INSTALLED=false
 
-    # Try to install from PyPI (pre-built wheel)
-    echo -e "${CYAN}   Installing from PyPI...${NC}"
+    # NOTE: PyPI install is disabled - always build from source with maturin
+    # This ensures users get the latest local version matching their Rust build
+    #
+    # # Try to install from PyPI (pre-built wheel)
+    # echo -e "${CYAN}   Installing from PyPI...${NC}"
+    #
+    # PIP_OUTPUT=$(pip3 install horus-robotics --user 2>&1)
+    # PIP_EXIT_CODE=$?
+    #
+    # if [ $PIP_EXIT_CODE -eq 0 ]; then
+    #     HORUS_PY_INSTALLED=true
+    # else
+    #     # Parse the error and try auto-fix
+    #     echo -e "${YELLOW}   PyPI install failed - analyzing error...${NC}"
+    #
+    #     PIP_FIX_RESULT=$(parse_pip_error "$PIP_OUTPUT")
+    #     PIP_ERROR_TYPE="${PIP_FIX_RESULT%%:*}"
+    #     PIP_FIX_STATUS="${PIP_FIX_RESULT##*:}"
+    #
+    #     if [ "$PIP_FIX_STATUS" = "fixed" ]; then
+    #         HORUS_PY_INSTALLED=true
+    #     else
+    #         # Show relevant error lines (filter out noise)
+    #         echo "$PIP_OUTPUT" | grep -E "(ERROR|error:|Could not|No matching|requires|glibc)" | head -3
+    #         echo ""
+    #         echo -e "${YELLOW}[-]${NC} Could not install horus_py from PyPI"
+    # END OF COMMENTED PyPI SECTION
 
-    PIP_OUTPUT=$(pip3 install horus-robotics --user 2>&1)
-    PIP_EXIT_CODE=$?
+    # Build from source with maturin (primary installation method)
+    if [ -d "horus_py" ]; then
+        echo -e "${CYAN}${STATUS_INFO} Building horus_py from source with maturin...${NC}"
 
-    if [ $PIP_EXIT_CODE -eq 0 ]; then
-        HORUS_PY_INSTALLED=true
-    else
-        # Parse the error and try auto-fix
-        echo -e "${YELLOW}   PyPI install failed - analyzing error...${NC}"
-
-        PIP_FIX_RESULT=$(parse_pip_error "$PIP_OUTPUT")
-        PIP_ERROR_TYPE="${PIP_FIX_RESULT%%:*}"
-        PIP_FIX_STATUS="${PIP_FIX_RESULT##*:}"
-
-        if [ "$PIP_FIX_STATUS" = "fixed" ]; then
-            HORUS_PY_INSTALLED=true
+        # Check if maturin is available, install if not
+        MATURIN_AVAILABLE=false
+        if command -v maturin &> /dev/null; then
+            MATURIN_AVAILABLE=true
+            echo -e "${GREEN}${STATUS_OK} maturin found${NC}"
         else
-            # Show relevant error lines (filter out noise)
-            echo "$PIP_OUTPUT" | grep -E "(ERROR|error:|Could not|No matching|requires|glibc)" | head -3
-            echo ""
-            echo -e "${YELLOW}[-]${NC} Could not install horus_py from PyPI"
+            echo -e "${CYAN}   Installing maturin...${NC}"
 
-            # Fallback: Try building from source with maturin
-            if [ -d "horus_py" ]; then
-                echo -e "${CYAN}${STATUS_INFO} Attempting to build from source with maturin...${NC}"
+            # Check if we can use sudo without password (for non-interactive install)
+            CAN_SUDO=false
+            if command -v sudo &>/dev/null && sudo -n true 2>/dev/null; then
+                CAN_SUDO=true
+            fi
 
-                # Check if maturin is available, install if not
-                MATURIN_AVAILABLE=false
-                if command -v maturin &> /dev/null; then
+            # Try multiple installation methods (OS-aware, ordered by speed)
+            # 1. Try non-sudo methods first (pipx, pip, brew on macOS)
+            if command -v brew &> /dev/null && brew install maturin 2>/dev/null; then
+                # Homebrew doesn't need sudo
+                MATURIN_AVAILABLE=true
+                echo -e "${GREEN}${STATUS_OK} maturin installed via Homebrew${NC}"
+            elif command -v pipx &> /dev/null && pipx install maturin 2>/dev/null; then
+                # pipx doesn't need sudo
+                MATURIN_AVAILABLE=true
+                export PATH="$HOME/.local/bin:$PATH"
+                echo -e "${GREEN}${STATUS_OK} maturin installed via pipx${NC}"
+            elif pip3 install maturin --user --break-system-packages 2>/dev/null; then
+                # pip --user doesn't need sudo
+                MATURIN_AVAILABLE=true
+                echo -e "${GREEN}${STATUS_OK} maturin installed via pip${NC}"
+            elif pip3 install maturin --user 2>/dev/null; then
+                # pip --user doesn't need sudo (older systems)
+                MATURIN_AVAILABLE=true
+                echo -e "${GREEN}${STATUS_OK} maturin installed via pip${NC}"
+            # 2. Try OS package manager if sudo available without password
+            elif [ "$CAN_SUDO" = true ]; then
+                if command -v apt-get &> /dev/null && sudo apt-get install -y python3-maturin 2>/dev/null; then
                     MATURIN_AVAILABLE=true
-                    echo -e "${GREEN}${STATUS_OK} maturin found${NC}"
-                else
-                    echo -e "${CYAN}   Installing maturin...${NC}"
-
-                    # Check if we can use sudo without password (for non-interactive install)
-                    CAN_SUDO=false
-                    if command -v sudo &>/dev/null && sudo -n true 2>/dev/null; then
-                        CAN_SUDO=true
-                    fi
-
-                    # Try multiple installation methods (OS-aware, ordered by speed)
-                    # 1. Try non-sudo methods first (pipx, pip, brew on macOS)
-                    if command -v brew &> /dev/null && brew install maturin 2>/dev/null; then
-                        # Homebrew doesn't need sudo
-                        MATURIN_AVAILABLE=true
-                        echo -e "${GREEN}${STATUS_OK} maturin installed via Homebrew${NC}"
-                    elif command -v pipx &> /dev/null && pipx install maturin 2>/dev/null; then
-                        # pipx doesn't need sudo
-                        MATURIN_AVAILABLE=true
-                        export PATH="$HOME/.local/bin:$PATH"
-                        echo -e "${GREEN}${STATUS_OK} maturin installed via pipx${NC}"
-                    elif pip3 install maturin --user --break-system-packages 2>/dev/null; then
-                        # pip --user doesn't need sudo
-                        MATURIN_AVAILABLE=true
-                        echo -e "${GREEN}${STATUS_OK} maturin installed via pip${NC}"
-                    elif pip3 install maturin --user 2>/dev/null; then
-                        # pip --user doesn't need sudo (older systems)
-                        MATURIN_AVAILABLE=true
-                        echo -e "${GREEN}${STATUS_OK} maturin installed via pip${NC}"
-                    # 2. Try OS package manager if sudo available without password
-                    elif [ "$CAN_SUDO" = true ]; then
-                        if command -v apt-get &> /dev/null && sudo apt-get install -y python3-maturin 2>/dev/null; then
-                            MATURIN_AVAILABLE=true
-                            echo -e "${GREEN}${STATUS_OK} maturin installed via apt${NC}"
-                        elif command -v dnf &> /dev/null && sudo dnf install -y python3-maturin 2>/dev/null; then
-                            MATURIN_AVAILABLE=true
-                            echo -e "${GREEN}${STATUS_OK} maturin installed via dnf${NC}"
-                        elif command -v pacman &> /dev/null && sudo pacman -S --noconfirm python-maturin 2>/dev/null; then
-                            MATURIN_AVAILABLE=true
-                            echo -e "${GREEN}${STATUS_OK} maturin installed via pacman${NC}"
-                        elif command -v zypper &> /dev/null && sudo zypper install -y python3-maturin 2>/dev/null; then
-                            MATURIN_AVAILABLE=true
-                            echo -e "${GREEN}${STATUS_OK} maturin installed via zypper${NC}"
-                        elif command -v apk &> /dev/null && sudo apk add py3-maturin 2>/dev/null; then
-                            MATURIN_AVAILABLE=true
-                            echo -e "${GREEN}${STATUS_OK} maturin installed via apk${NC}"
-                        fi
-                    fi
-
-                    # 3. cargo install as last resort (slow but universal, no sudo needed)
-                    if [ "$MATURIN_AVAILABLE" != true ]; then
-                        echo -e "${CYAN}   Trying cargo install (this may take a few minutes)...${NC}"
-                        if cargo install maturin 2>/dev/null; then
-                            MATURIN_AVAILABLE=true
-                            echo -e "${GREEN}${STATUS_OK} maturin installed via cargo${NC}"
-                        fi
-                    fi
-
-                    # 4. If still not available, show manual options
-                    if [ "$MATURIN_AVAILABLE" != true ]; then
-                        echo -e "${YELLOW}${STATUS_WARN} Could not install maturin automatically${NC}"
-                        echo -e "   ${CYAN}Manual fix options (choose one):${NC}"
-                        echo -e "   ${CYAN}  Debian/Ubuntu: sudo apt install python3-maturin${NC}"
-                        echo -e "   ${CYAN}  Fedora/RHEL:   sudo dnf install python3-maturin${NC}"
-                        echo -e "   ${CYAN}  Arch:          sudo pacman -S python-maturin${NC}"
-                        echo -e "   ${CYAN}  macOS:         brew install maturin${NC}"
-                        echo -e "   ${CYAN}  Any OS:        pipx install maturin${NC}"
-                        echo -e "   ${CYAN}  Any OS:        cargo install maturin${NC}"
-                    fi
-                fi
-
-                # Build with maturin if available
-                if [ "$MATURIN_AVAILABLE" = true ]; then
-                    echo -e "${CYAN}   Building horus_py from source...${NC}"
-                    CURRENT_DIR=$(pwd)
-                    cd horus_py
-
-                    # Build the wheel
-                    if maturin build --release 2>/dev/null; then
-                        # Try to install the wheel (handle PEP 668 systems)
-                        WHEEL_FILE=$(ls target/wheels/*.whl 2>/dev/null | head -1)
-                        if [ -n "$WHEEL_FILE" ]; then
-                            if pip3 install "$WHEEL_FILE" --user --force-reinstall 2>/dev/null; then
-                                HORUS_PY_INSTALLED=true
-                                echo -e "${GREEN}${STATUS_OK} horus_py built and installed from source${NC}"
-                            elif pip3 install "$WHEEL_FILE" --user --force-reinstall --break-system-packages 2>/dev/null; then
-                                HORUS_PY_INSTALLED=true
-                                echo -e "${GREEN}${STATUS_OK} horus_py built and installed from source${NC}"
-                            elif command -v pipx &> /dev/null && pipx install "$WHEEL_FILE" --force 2>/dev/null; then
-                                HORUS_PY_INSTALLED=true
-                                echo -e "${GREEN}${STATUS_OK} horus_py built and installed via pipx${NC}"
-                            fi
-                        fi
-                    fi
-
-                    # Fallback: Try maturin develop if build+install failed
-                    if [ "$HORUS_PY_INSTALLED" != true ]; then
-                        # maturin develop respects virtual environments and handles PEP 668
-                        if maturin develop --release 2>/dev/null; then
-                            HORUS_PY_INSTALLED=true
-                            echo -e "${GREEN}${STATUS_OK} horus_py installed in development mode${NC}"
-                        else
-                            echo -e "${YELLOW}[-]${NC} maturin build failed"
-                            echo -e "   ${CYAN}Try: cd horus_py && maturin develop --release${NC}"
-                        fi
-                    fi
-
-                    cd "$CURRENT_DIR"
+                    echo -e "${GREEN}${STATUS_OK} maturin installed via apt${NC}"
+                elif command -v dnf &> /dev/null && sudo dnf install -y python3-maturin 2>/dev/null; then
+                    MATURIN_AVAILABLE=true
+                    echo -e "${GREEN}${STATUS_OK} maturin installed via dnf${NC}"
+                elif command -v pacman &> /dev/null && sudo pacman -S --noconfirm python-maturin 2>/dev/null; then
+                    MATURIN_AVAILABLE=true
+                    echo -e "${GREEN}${STATUS_OK} maturin installed via pacman${NC}"
+                elif command -v zypper &> /dev/null && sudo zypper install -y python3-maturin 2>/dev/null; then
+                    MATURIN_AVAILABLE=true
+                    echo -e "${GREEN}${STATUS_OK} maturin installed via zypper${NC}"
+                elif command -v apk &> /dev/null && sudo apk add py3-maturin 2>/dev/null; then
+                    MATURIN_AVAILABLE=true
+                    echo -e "${GREEN}${STATUS_OK} maturin installed via apk${NC}"
                 fi
             fi
+
+            # 3. cargo install as last resort (slow but universal, no sudo needed)
+            if [ "$MATURIN_AVAILABLE" != true ]; then
+                echo -e "${CYAN}   Trying cargo install (this may take a few minutes)...${NC}"
+                if cargo install maturin 2>/dev/null; then
+                    MATURIN_AVAILABLE=true
+                    echo -e "${GREEN}${STATUS_OK} maturin installed via cargo${NC}"
+                fi
+            fi
+
+            # 4. If still not available, show manual options
+            if [ "$MATURIN_AVAILABLE" != true ]; then
+                echo -e "${YELLOW}${STATUS_WARN} Could not install maturin automatically${NC}"
+                echo -e "   ${CYAN}Manual fix options (choose one):${NC}"
+                echo -e "   ${CYAN}  Debian/Ubuntu: sudo apt install python3-maturin${NC}"
+                echo -e "   ${CYAN}  Fedora/RHEL:   sudo dnf install python3-maturin${NC}"
+                echo -e "   ${CYAN}  Arch:          sudo pacman -S python-maturin${NC}"
+                echo -e "   ${CYAN}  macOS:         brew install maturin${NC}"
+                echo -e "   ${CYAN}  Any OS:        pipx install maturin${NC}"
+                echo -e "   ${CYAN}  Any OS:        cargo install maturin${NC}"
+            fi
+        fi
+
+        # Build with maturin if available
+        if [ "$MATURIN_AVAILABLE" = true ]; then
+            echo -e "${CYAN}   Building horus_py from source...${NC}"
+            CURRENT_DIR=$(pwd)
+            cd horus_py
+
+            # Build the wheel
+            if maturin build --release 2>/dev/null; then
+                # Try to install the wheel (handle PEP 668 systems)
+                WHEEL_FILE=$(ls target/wheels/*.whl 2>/dev/null | head -1)
+                if [ -n "$WHEEL_FILE" ]; then
+                    if pip3 install "$WHEEL_FILE" --user --force-reinstall 2>/dev/null; then
+                        HORUS_PY_INSTALLED=true
+                        echo -e "${GREEN}${STATUS_OK} horus_py built and installed from source${NC}"
+                    elif pip3 install "$WHEEL_FILE" --user --force-reinstall --break-system-packages 2>/dev/null; then
+                        HORUS_PY_INSTALLED=true
+                        echo -e "${GREEN}${STATUS_OK} horus_py built and installed from source${NC}"
+                    elif command -v pipx &> /dev/null && pipx install "$WHEEL_FILE" --force 2>/dev/null; then
+                        HORUS_PY_INSTALLED=true
+                        echo -e "${GREEN}${STATUS_OK} horus_py built and installed via pipx${NC}"
+                    fi
+                fi
+            fi
+
+            # Fallback: Try maturin develop if build+install failed
+            if [ "$HORUS_PY_INSTALLED" != true ]; then
+                # maturin develop respects virtual environments and handles PEP 668
+                if maturin develop --release 2>/dev/null; then
+                    HORUS_PY_INSTALLED=true
+                    echo -e "${GREEN}${STATUS_OK} horus_py installed in development mode${NC}"
+                else
+                    echo -e "${YELLOW}[-]${NC} maturin build failed"
+                    echo -e "   ${CYAN}Try: cd horus_py && maturin develop --release${NC}"
+                fi
+            fi
+
+            cd "$CURRENT_DIR"
         fi
     fi
 
@@ -2629,7 +2631,7 @@ if [ "$PYTHON_AVAILABLE" = true ]; then
     if [ "$HORUS_PY_INSTALLED" = true ]; then
         if python3 -c "import horus; print(f'horus {horus.__version__}')" 2>/dev/null; then
             INSTALLED_VERSION=$(python3 -c "import horus; print(horus.__version__)" 2>/dev/null)
-            echo -e "${GREEN}${STATUS_OK} horus_py installed from PyPI (v$INSTALLED_VERSION)${NC}"
+            echo -e "${GREEN}${STATUS_OK} horus_py built and installed (v$INSTALLED_VERSION)${NC}"
         else
             echo -e "${YELLOW}[-]${NC} Python bindings installed but import failed"
             echo -e "  ${CYAN}Try: python3 -c 'import horus'${NC} to see the error"

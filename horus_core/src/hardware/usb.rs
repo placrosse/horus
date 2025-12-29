@@ -2,7 +2,6 @@
 //!
 //! Enumerates USB devices and provides VID/PID identification.
 
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 

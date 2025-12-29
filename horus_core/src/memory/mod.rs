@@ -42,7 +42,9 @@ pub use tensor_pool::{
 #[cfg(feature = "cuda")]
 pub use cuda_ffi::{CudaIpcMemHandle, CUDA_IPC_HANDLE_SIZE};
 #[cfg(feature = "cuda")]
-pub use cuda_pool::{CudaTensor, CudaTensorPool, CudaTensorPoolConfig};
+pub use cuda_pool::{
+    CudaPoolStats, CudaTensor, CudaTensorPool, CudaTensorPoolConfig, P2PAccessInfo, P2PManager,
+};
 
 /// Check if CUDA is available at runtime
 #[cfg(feature = "cuda")]

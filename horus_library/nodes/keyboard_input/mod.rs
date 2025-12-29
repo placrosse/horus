@@ -419,11 +419,16 @@ where
             KeyCode::Char('a') | KeyCode::Char('A') => ("A".to_string(), keycodes::KEY_A),
             KeyCode::Char('s') | KeyCode::Char('S') => ("S".to_string(), keycodes::KEY_S),
             KeyCode::Char('d') | KeyCode::Char('D') => ("D".to_string(), keycodes::KEY_D),
+            // Space key - Issue #26 fix: spacebar was being dropped
+            KeyCode::Char(' ') => ("Space".to_string(), keycodes::KEY_SPACE),
             KeyCode::Char(c) => {
                 let key_str = c.to_string();
                 let code = if c.is_ascii_alphabetic() {
                     c.to_ascii_uppercase() as u32
                 } else if c.is_ascii_digit() {
+                    c as u32
+                } else if c.is_ascii_punctuation() || c.is_ascii_whitespace() {
+                    // Handle punctuation and whitespace by their ASCII value
                     c as u32
                 } else {
                     return None;

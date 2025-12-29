@@ -68,9 +68,23 @@ struct ImplSection {
     body: Block,
 }
 
+/// Optional rate section for preferred execution rate
+struct RateSection {
+    _rate_token: Ident, // "rate" keyword
+    rate_hz: Expr,      // The rate value in Hz
+}
+
+/// Optional explicit name section for custom node naming
+struct NameSection {
+    _name_token: Ident, // "name" keyword
+    _colon: Token![:],
+    name_value: syn::LitStr, // The quoted string like "FlightController"
+}
+
 /// The complete node definition
 struct NodeDef {
     name: Ident,
+    name_section: Option<NameSection>, // Optional explicit node name override
     pub_section: Option<PubSection>,
     sub_section: Option<SubSection>,
     data_section: Option<DataSection>,
@@ -78,6 +92,7 @@ struct NodeDef {
     init_section: Option<InitSection>,
     shutdown_section: Option<ShutdownSection>,
     impl_section: Option<ImplSection>,
+    rate_section: Option<RateSection>, // Optional preferred rate
 }
 
 impl Parse for NodeDef {
@@ -88,6 +103,7 @@ impl Parse for NodeDef {
         let content;
         braced!(content in input);
 
+        let mut name_section = None;
         let mut pub_section = None;
         let mut sub_section = None;
         let mut data_section = None;
@@ -95,6 +111,7 @@ impl Parse for NodeDef {
         let mut init_section = None;
         let mut shutdown_section = None;
         let mut impl_section = None;
+        let mut rate_section = None;
 
         // Parse sections in any order
         while !content.is_empty() {
@@ -155,9 +172,27 @@ impl Parse for NodeDef {
                         }
                         shutdown_section = Some(parse_shutdown_section(&content, section_name)?);
                     }
+                    "rate" => {
+                        if rate_section.is_some() {
+                            return Err(Error::new(
+                                section_name.span(),
+                                "Duplicate 'rate' section",
+                            ));
+                        }
+                        rate_section = Some(parse_rate_section(&content, section_name)?);
+                    }
+                    "name" => {
+                        if name_section.is_some() {
+                            return Err(Error::new(
+                                section_name.span(),
+                                "Duplicate 'name' section",
+                            ));
+                        }
+                        name_section = Some(parse_name_section(&content, section_name)?);
+                    }
                     _ => {
                         return Err(Error::new(section_name.span(),
-                            format!("Unknown section '{}'. Expected: pub, sub, data, tick, init, shutdown, or impl", section_str)));
+                            format!("Unknown section '{}'. Expected: pub, sub, data, tick, init, shutdown, rate, name, or impl", section_str)));
                     }
                 }
             } else if lookahead.peek(Token![impl]) {
@@ -176,6 +211,7 @@ impl Parse for NodeDef {
 
         Ok(NodeDef {
             name,
+            name_section,
             pub_section,
             sub_section,
             data_section,
@@ -183,6 +219,7 @@ impl Parse for NodeDef {
             init_section,
             shutdown_section,
             impl_section,
+            rate_section,
         })
     }
 }
@@ -354,11 +391,44 @@ fn parse_impl_section(input: ParseStream) -> Result<ImplSection> {
     })
 }
 
+fn parse_rate_section(input: ParseStream, rate_token: Ident) -> Result<RateSection> {
+    // Parse rate value: rate 60.0 or rate 100
+    let rate_hz: Expr = input.parse()?;
+
+    Ok(RateSection {
+        _rate_token: rate_token,
+        rate_hz,
+    })
+}
+
+fn parse_name_section(input: ParseStream, name_token: Ident) -> Result<NameSection> {
+    // Parse: name: "CustomName"
+    let colon: Token![:] = input.parse()?;
+    let name_value: syn::LitStr = input.parse()?;
+
+    // Optional trailing comma
+    if input.peek(Token![,]) {
+        input.parse::<Token![,]>()?;
+    }
+
+    Ok(NameSection {
+        _name_token: name_token,
+        _colon: colon,
+        name_value,
+    })
+}
+
 pub fn impl_node_macro(input: TokenStream) -> TokenStream {
     let node_def = parse_macro_input!(input as NodeDef);
 
     let struct_name = &node_def.name;
-    let node_name_str = to_snake_case(&struct_name.to_string());
+
+    // Use explicit name if provided, otherwise auto-generate from struct name
+    let node_name_str = if let Some(ref name_section) = node_def.name_section {
+        name_section.name_value.value()
+    } else {
+        to_snake_case(&struct_name.to_string())
+    };
 
     // Generate struct fields
     let mut struct_fields = Vec::new();
@@ -555,6 +625,18 @@ pub fn impl_node_macro(input: TokenStream) -> TokenStream {
         quote! {}
     };
 
+    // Generate optional rate_hz implementation
+    let rate_impl = if let Some(ref rate_section) = node_def.rate_section {
+        let rate_value = &rate_section.rate_hz;
+        quote! {
+            fn rate_hz(&self) -> Option<f64> {
+                Some(#rate_value)
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     // Generate the complete output
     let expanded = quote! {
         pub struct #struct_name {
@@ -579,6 +661,7 @@ pub fn impl_node_macro(input: TokenStream) -> TokenStream {
             #shutdown_impl
             #publishers_impl
             #subscribers_impl
+            #rate_impl
         }
 
         impl Default for #struct_name {

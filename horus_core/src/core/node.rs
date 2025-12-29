@@ -1079,6 +1079,24 @@ pub trait Node: Send {
         50 // Normal priority
     }
 
+    /// Node's tick rate in Hz (optional)
+    ///
+    /// Override to specify this node's tick rate. The scheduler uses this
+    /// as the default when adding the node.
+    ///
+    /// Returns `None` by default, meaning use the scheduler's global rate.
+    /// Can be overridden at runtime via `Scheduler::set_node_rate()`.
+    ///
+    /// # Example
+    /// ```ignore
+    /// fn rate_hz(&self) -> Option<f64> {
+    ///     Some(100.0)  // This node runs at 100Hz
+    /// }
+    /// ```
+    fn rate_hz(&self) -> Option<f64> {
+        None
+    }
+
     /// Get node configuration (optional override)
     fn get_config(&self) -> NodeConfig {
         NodeConfig::default()

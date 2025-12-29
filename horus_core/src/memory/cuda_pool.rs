@@ -74,6 +74,9 @@ const MAX_CUDA_SLOTS: usize = 256;
 const SLOT_FREE: u32 = 0;
 const SLOT_ALLOCATED: u32 = 1;
 
+/// Invalid slot index (sentinel for free list)
+const INVALID_SLOT: u32 = u32::MAX;
+
 /// CUDA pool header stored in shared memory
 #[repr(C)]
 struct CudaPoolHeader {
@@ -83,7 +86,9 @@ struct CudaPoolHeader {
     device_id: u32,
     max_slots: u32,
     allocated_count: AtomicU32,
-    _padding: [u8; 40], // Pad to 64 bytes
+    /// Head of free slot stack (for O(1) allocation)
+    free_stack_head: AtomicU64,
+    _padding: [u8; 32], // Pad to 64 bytes
 }
 
 /// Per-slot metadata in shared memory
@@ -109,7 +114,9 @@ struct CudaSlotHeader {
     refcount: AtomicU32,
     /// Generation counter (ABA prevention)
     generation: AtomicU32,
-    _padding: [u8; 18], // Align to 256 bytes total
+    /// Next free slot in free stack (for O(1) allocation)
+    next_free: AtomicU32,
+    _padding: [u8; 14], // Align to 256 bytes total
 }
 
 /// Configuration for CUDA tensor pool
@@ -143,6 +150,8 @@ pub struct CudaTensor {
     pub size: u64,
     /// Number of elements
     pub numel: u64,
+    /// Byte offset into the underlying buffer (for views/slices)
+    pub offset: u64,
     /// Data type
     pub dtype: TensorDtype,
     /// Number of dimensions
@@ -150,6 +159,8 @@ pub struct CudaTensor {
     pub _pad: [u8; 6],
     /// Shape
     pub shape: [u64; MAX_TENSOR_DIMS],
+    /// Strides in elements (for views/slices)
+    pub strides: [u64; MAX_TENSOR_DIMS],
     /// IPC handle for cross-process sharing
     pub ipc_handle: [u8; CUDA_IPC_HANDLE_SIZE],
 }
@@ -169,6 +180,167 @@ impl CudaTensor {
             3 => TensorDevice::Cuda3,
             _ => TensorDevice::Cuda0,
         }
+    }
+
+    /// Check if tensor is contiguous in memory
+    pub fn is_contiguous(&self) -> bool {
+        if self.ndim == 0 {
+            return true;
+        }
+
+        // Check strides match contiguous layout (row-major)
+        let mut expected_stride = 1u64;
+        for i in (0..self.ndim as usize).rev() {
+            if self.strides[i] != expected_stride {
+                return false;
+            }
+            expected_stride *= self.shape[i];
+        }
+        true
+    }
+
+    /// Create a view of this tensor with different shape
+    /// Only works for contiguous tensors with matching element count
+    pub fn view(&self, new_shape: &[u64]) -> Option<Self> {
+        let old_numel: u64 = self.shape[..self.ndim as usize].iter().product();
+        let new_numel: u64 = new_shape.iter().product();
+
+        if old_numel != new_numel || !self.is_contiguous() {
+            return None;
+        }
+
+        if new_shape.len() > MAX_TENSOR_DIMS {
+            return None;
+        }
+
+        let mut result = *self;
+        result.ndim = new_shape.len() as u8;
+
+        // Set new shape
+        result.shape = [0; MAX_TENSOR_DIMS];
+        for (i, &dim) in new_shape.iter().enumerate() {
+            result.shape[i] = dim;
+        }
+
+        // Compute contiguous strides for new shape
+        result.strides = [0; MAX_TENSOR_DIMS];
+        let mut stride = 1u64;
+        for i in (0..new_shape.len()).rev() {
+            result.strides[i] = stride;
+            stride *= new_shape[i];
+        }
+
+        Some(result)
+    }
+
+    /// Create a slice/view of this tensor along the first dimension
+    /// Returns a view into [start, end) of the first dimension
+    pub fn slice_first_dim(&self, start: u64, end: u64) -> Option<Self> {
+        if self.ndim == 0 || start >= end || end > self.shape[0] {
+            return None;
+        }
+
+        let mut result = *self;
+        result.shape[0] = end - start;
+        result.offset += start * self.strides[0] * self.dtype.element_size() as u64;
+
+        // Recompute numel and size
+        let new_numel: u64 = result.shape[..result.ndim as usize].iter().product();
+        result.numel = new_numel;
+        result.size = new_numel * self.dtype.element_size() as u64;
+
+        Some(result)
+    }
+
+    /// Create a slice along any dimension
+    /// Returns a view into [start, end) of the specified dimension
+    pub fn slice_dim(&self, dim: usize, start: u64, end: u64) -> Option<Self> {
+        if dim >= self.ndim as usize || start >= end || end > self.shape[dim] {
+            return None;
+        }
+
+        let mut result = *self;
+        result.offset += start * self.strides[dim] * self.dtype.element_size() as u64;
+        result.shape[dim] = end - start;
+
+        // Recompute numel and size
+        let new_numel: u64 = result.shape[..result.ndim as usize].iter().product();
+        result.numel = new_numel;
+        result.size = new_numel * self.dtype.element_size() as u64;
+
+        Some(result)
+    }
+
+    /// Transpose two dimensions (creates a non-contiguous view)
+    pub fn transpose(&self, dim0: usize, dim1: usize) -> Option<Self> {
+        if dim0 >= self.ndim as usize || dim1 >= self.ndim as usize {
+            return None;
+        }
+
+        if dim0 == dim1 {
+            return Some(*self);
+        }
+
+        let mut result = *self;
+        result.shape.swap(dim0, dim1);
+        result.strides.swap(dim0, dim1);
+
+        Some(result)
+    }
+
+    /// Squeeze dimension (remove dimension of size 1)
+    pub fn squeeze(&self, dim: usize) -> Option<Self> {
+        if dim >= self.ndim as usize || self.shape[dim] != 1 {
+            return None;
+        }
+
+        if self.ndim == 1 {
+            // Can't squeeze scalar
+            return None;
+        }
+
+        let mut result = *self;
+        result.ndim -= 1;
+
+        // Shift dimensions down
+        for i in dim..result.ndim as usize {
+            result.shape[i] = result.shape[i + 1];
+            result.strides[i] = result.strides[i + 1];
+        }
+        result.shape[result.ndim as usize] = 0;
+        result.strides[result.ndim as usize] = 0;
+
+        Some(result)
+    }
+
+    /// Unsqueeze (add dimension of size 1 at position)
+    pub fn unsqueeze(&self, dim: usize) -> Option<Self> {
+        if dim > self.ndim as usize || self.ndim as usize >= MAX_TENSOR_DIMS {
+            return None;
+        }
+
+        let mut result = *self;
+        result.ndim += 1;
+
+        // Shift dimensions up
+        for i in (dim + 1..result.ndim as usize).rev() {
+            result.shape[i] = result.shape[i - 1];
+            result.strides[i] = result.strides[i - 1];
+        }
+        result.shape[dim] = 1;
+        // Stride doesn't matter for size-1 dimension
+        result.strides[dim] = if dim + 1 < result.ndim as usize {
+            result.shape[dim + 1] * result.strides[dim + 1]
+        } else {
+            1
+        };
+
+        Some(result)
+    }
+
+    /// Get the effective device pointer (base + offset)
+    pub fn effective_offset(&self) -> u64 {
+        self.offset
     }
 }
 
@@ -313,6 +485,9 @@ impl CudaTensorPool {
         header.device_id = device_id;
         header.max_slots = max_slots as u32;
         header.allocated_count.store(0, Ordering::Release);
+        header
+            .free_stack_head
+            .store(INVALID_SLOT as u64, Ordering::Release);
 
         // Initialize all slots as free
         for i in 0..max_slots {
@@ -320,6 +495,7 @@ impl CudaTensorPool {
             slot.state.store(SLOT_FREE, Ordering::Release);
             slot.refcount.store(0, Ordering::Release);
             slot.generation.store(0, Ordering::Release);
+            slot.next_free.store(INVALID_SLOT, Ordering::Release);
         }
 
         self.mmap.flush()?;
@@ -389,16 +565,28 @@ impl CudaTensorPool {
             device_id: self.device_id as u32,
             size,
             numel,
+            offset: 0, // New allocations start at offset 0
             dtype,
             ndim: shape.len().min(MAX_TENSOR_DIMS) as u8,
             _pad: [0; 6],
             shape: [0; MAX_TENSOR_DIMS],
+            strides: [0; MAX_TENSOR_DIMS],
             ipc_handle: [0; CUDA_IPC_HANDLE_SIZE],
         };
 
-        for (i, &dim) in shape.iter().take(MAX_TENSOR_DIMS).enumerate() {
+        // Set shape and compute contiguous strides
+        let ndim = shape.len().min(MAX_TENSOR_DIMS);
+        for (i, &dim) in shape.iter().take(ndim).enumerate() {
             tensor.shape[i] = dim;
         }
+
+        // Compute row-major contiguous strides
+        let mut stride = 1u64;
+        for i in (0..ndim).rev() {
+            tensor.strides[i] = stride;
+            stride *= tensor.shape[i];
+        }
+
         tensor.ipc_handle.copy_from_slice(&ipc_handle.reserved);
 
         Ok(tensor)
@@ -444,16 +632,28 @@ impl CudaTensorPool {
             device_id: self.device_id as u32,
             size,
             numel,
+            offset: 0,
             dtype,
             ndim: shape.len().min(MAX_TENSOR_DIMS) as u8,
             _pad: [0; 6],
             shape: [0; MAX_TENSOR_DIMS],
+            strides: [0; MAX_TENSOR_DIMS],
             ipc_handle: [0; CUDA_IPC_HANDLE_SIZE],
         };
 
-        for (i, &dim) in shape.iter().take(MAX_TENSOR_DIMS).enumerate() {
+        // Set shape and compute contiguous strides
+        let ndim = shape.len().min(MAX_TENSOR_DIMS);
+        for (i, &dim) in shape.iter().take(ndim).enumerate() {
             tensor.shape[i] = dim;
         }
+
+        // Compute row-major contiguous strides
+        let mut stride = 1u64;
+        for i in (0..ndim).rev() {
+            tensor.strides[i] = stride;
+            stride *= tensor.shape[i];
+        }
+
         tensor.ipc_handle.copy_from_slice(ipc_handle_bytes);
 
         Ok((dev_ptr, tensor))
@@ -508,7 +708,8 @@ impl CudaTensorPool {
                     .map_err(|e| HorusError::Memory(format!("CUDA free failed: {}", e)))?;
             }
 
-            slot.state.store(SLOT_FREE, Ordering::Release);
+            // Return slot to free stack for O(1) reallocation
+            self.return_slot(tensor.slot_id);
             self.header().allocated_count.fetch_sub(1, Ordering::AcqRel);
         }
 
@@ -532,8 +733,8 @@ impl CudaTensorPool {
         }
     }
 
-    /// Get device pointer for a tensor
-    pub fn device_ptr(&self, tensor: &CudaTensor) -> *mut c_void {
+    /// Get base device pointer for a tensor (without offset)
+    pub fn base_device_ptr(&self, tensor: &CudaTensor) -> *mut c_void {
         if tensor.pool_id != self.pool_id || tensor.slot_id == u32::MAX {
             return std::ptr::null_mut();
         }
@@ -544,6 +745,21 @@ impl CudaTensorPool {
         }
 
         slot.device_ptr.load(Ordering::Acquire) as *mut c_void
+    }
+
+    /// Get device pointer for a tensor (includes offset for views/slices)
+    pub fn device_ptr(&self, tensor: &CudaTensor) -> *mut c_void {
+        let base = self.base_device_ptr(tensor);
+        if base.is_null() {
+            return base;
+        }
+
+        // Add offset for views/slices
+        if tensor.offset > 0 {
+            unsafe { base.add(tensor.offset as usize) }
+        } else {
+            base
+        }
     }
 
     /// Get pool statistics
@@ -595,9 +811,34 @@ impl CudaTensorPool {
     }
 
     fn find_free_slot(&self) -> HorusResult<u32> {
+        // Try to pop from free stack first (O(1) fast path)
         let header = self.header();
-        let max_slots = header.max_slots as usize;
 
+        loop {
+            let head = header.free_stack_head.load(Ordering::Acquire);
+            if head != INVALID_SLOT as u64 {
+                let slot_id = head as u32;
+                let slot = self.slot(slot_id);
+                let next = slot.next_free.load(Ordering::Acquire);
+
+                // Try to pop this slot from the free stack
+                if header
+                    .free_stack_head
+                    .compare_exchange_weak(head, next as u64, Ordering::AcqRel, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    // Successfully popped, now mark as allocated
+                    slot.state.store(SLOT_ALLOCATED, Ordering::Release);
+                    return Ok(slot_id);
+                }
+                // CAS failed, retry
+                continue;
+            }
+            break;
+        }
+
+        // No free slots in stack, fall back to linear search (O(n) slow path)
+        let max_slots = header.max_slots as usize;
         for i in 0..max_slots {
             let slot = self.slot(i as u32);
             if slot
@@ -615,6 +856,29 @@ impl CudaTensorPool {
         }
 
         Err(HorusError::Memory("No free CUDA tensor slots".into()))
+    }
+
+    /// Return a slot to the free stack (O(1))
+    fn return_slot(&self, slot_id: u32) {
+        let header = self.header();
+        let slot = self.slot_mut(slot_id);
+
+        // Mark as free
+        slot.state.store(SLOT_FREE, Ordering::Release);
+
+        // Push to free stack
+        loop {
+            let head = header.free_stack_head.load(Ordering::Acquire);
+            slot.next_free.store(head as u32, Ordering::Release);
+
+            if header
+                .free_stack_head
+                .compare_exchange_weak(head, slot_id as u64, Ordering::AcqRel, Ordering::Relaxed)
+                .is_ok()
+            {
+                break;
+            }
+        }
     }
 }
 
@@ -681,14 +945,322 @@ pub fn cuda_device_count() -> usize {
     }
 }
 
+// =============================================================================
+// Multi-GPU Peer-to-Peer (P2P) Support
+// =============================================================================
+
+/// Information about P2P access between devices
+#[derive(Clone, Debug)]
+pub struct P2PAccessInfo {
+    /// Device ID of the source
+    pub device: i32,
+    /// Device ID of the peer
+    pub peer_device: i32,
+    /// Whether P2P access is supported between these devices
+    pub can_access: bool,
+    /// Whether P2P access is currently enabled
+    pub is_enabled: bool,
+}
+
+/// Multi-GPU P2P manager for cross-GPU tensor transfers
+pub struct P2PManager {
+    /// Enabled P2P connections (source_device, peer_device)
+    enabled_connections: std::sync::Mutex<Vec<(i32, i32)>>,
+}
+
+impl P2PManager {
+    /// Create a new P2P manager
+    pub fn new() -> Self {
+        Self {
+            enabled_connections: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Check if P2P access is possible between two devices
+    #[cfg(feature = "cuda")]
+    pub fn can_access_peer(device: i32, peer_device: i32) -> HorusResult<bool> {
+        if device == peer_device {
+            return Ok(true);
+        }
+
+        cuda_ffi::device_can_access_peer(device, peer_device)
+            .map_err(|e| HorusError::Memory(format!("Failed to check P2P access: {}", e)))
+    }
+
+    #[cfg(not(feature = "cuda"))]
+    pub fn can_access_peer(_device: i32, _peer_device: i32) -> HorusResult<bool> {
+        Err(HorusError::Config("CUDA feature not enabled".into()))
+    }
+
+    /// Enable P2P access between two devices (allows direct GPU-to-GPU transfers)
+    #[cfg(feature = "cuda")]
+    pub fn enable_peer_access(&self, device: i32, peer_device: i32) -> HorusResult<()> {
+        if device == peer_device {
+            return Ok(());
+        }
+
+        // Check if already enabled
+        {
+            let connections = self.enabled_connections.lock().unwrap();
+            if connections.contains(&(device, peer_device)) {
+                return Ok(());
+            }
+        }
+
+        // Check if P2P is possible
+        if !Self::can_access_peer(device, peer_device)? {
+            return Err(HorusError::Config(format!(
+                "P2P access not supported between devices {} and {}",
+                device, peer_device
+            )));
+        }
+
+        // Set current device and enable peer access
+        cuda_ffi::set_device(device)
+            .map_err(|e| HorusError::Memory(format!("Failed to set device: {}", e)))?;
+
+        cuda_ffi::device_enable_peer_access(peer_device)
+            .map_err(|e| HorusError::Memory(format!("Failed to enable P2P access: {}", e)))?;
+
+        // Record the enabled connection
+        {
+            let mut connections = self.enabled_connections.lock().unwrap();
+            connections.push((device, peer_device));
+        }
+
+        Ok(())
+    }
+
+    #[cfg(not(feature = "cuda"))]
+    pub fn enable_peer_access(&self, _device: i32, _peer_device: i32) -> HorusResult<()> {
+        Err(HorusError::Config("CUDA feature not enabled".into()))
+    }
+
+    /// Disable P2P access between two devices
+    #[cfg(feature = "cuda")]
+    pub fn disable_peer_access(&self, device: i32, peer_device: i32) -> HorusResult<()> {
+        if device == peer_device {
+            return Ok(());
+        }
+
+        // Check if enabled
+        {
+            let connections = self.enabled_connections.lock().unwrap();
+            if !connections.contains(&(device, peer_device)) {
+                return Ok(()); // Already disabled
+            }
+        }
+
+        // Set current device and disable peer access
+        cuda_ffi::set_device(device)
+            .map_err(|e| HorusError::Memory(format!("Failed to set device: {}", e)))?;
+
+        cuda_ffi::device_disable_peer_access(peer_device)
+            .map_err(|e| HorusError::Memory(format!("Failed to disable P2P access: {}", e)))?;
+
+        // Remove the connection
+        {
+            let mut connections = self.enabled_connections.lock().unwrap();
+            connections.retain(|&(d, p)| !(d == device && p == peer_device));
+        }
+
+        Ok(())
+    }
+
+    #[cfg(not(feature = "cuda"))]
+    pub fn disable_peer_access(&self, _device: i32, _peer_device: i32) -> HorusResult<()> {
+        Err(HorusError::Config("CUDA feature not enabled".into()))
+    }
+
+    /// Enable bidirectional P2P access between two devices
+    pub fn enable_bidirectional(&self, device1: i32, device2: i32) -> HorusResult<()> {
+        self.enable_peer_access(device1, device2)?;
+        self.enable_peer_access(device2, device1)?;
+        Ok(())
+    }
+
+    /// Get all P2P access information for all GPU pairs
+    pub fn get_p2p_topology() -> HorusResult<Vec<P2PAccessInfo>> {
+        let device_count = cuda_device_count();
+        let mut topology = Vec::new();
+
+        let connections: Vec<(i32, i32)> = Vec::new(); // No manager context, assume none enabled
+
+        for d in 0..device_count as i32 {
+            for p in 0..device_count as i32 {
+                if d != p {
+                    let can_access = Self::can_access_peer(d, p).unwrap_or(false);
+                    topology.push(P2PAccessInfo {
+                        device: d,
+                        peer_device: p,
+                        can_access,
+                        is_enabled: connections.contains(&(d, p)),
+                    });
+                }
+            }
+        }
+
+        Ok(topology)
+    }
+
+    /// Get enabled P2P connections
+    pub fn enabled_connections(&self) -> Vec<(i32, i32)> {
+        self.enabled_connections.lock().unwrap().clone()
+    }
+
+    /// Copy tensor between GPUs using P2P (requires P2P enabled)
+    /// Returns the destination tensor
+    #[cfg(feature = "cuda")]
+    pub fn copy_p2p(
+        &self,
+        src_pool: &CudaTensorPool,
+        src_tensor: &CudaTensor,
+        dst_pool: &CudaTensorPool,
+    ) -> HorusResult<CudaTensor> {
+        let src_device = src_pool.device_id();
+        let dst_device = dst_pool.device_id();
+
+        // Check P2P is enabled
+        {
+            let connections = self.enabled_connections.lock().unwrap();
+            if src_device != dst_device && !connections.contains(&(dst_device, src_device)) {
+                return Err(HorusError::Config(format!(
+                    "P2P access not enabled from device {} to device {}",
+                    dst_device, src_device
+                )));
+            }
+        }
+
+        // Allocate destination tensor
+        let dst_tensor = dst_pool.alloc(
+            &src_tensor.shape[..src_tensor.ndim as usize],
+            src_tensor.dtype,
+        )?;
+
+        // Get pointers
+        let src_ptr = src_pool.device_ptr(src_tensor);
+        let dst_ptr = dst_pool.device_ptr(&dst_tensor);
+
+        if src_ptr.is_null() || dst_ptr.is_null() {
+            return Err(HorusError::Memory("Invalid tensor pointers".into()));
+        }
+
+        // Use cudaMemcpyPeer semantics (device to device)
+        // cudaMemcpy with cudaMemcpyDeviceToDevice handles P2P if enabled
+        cuda_ffi::memcpy(
+            dst_ptr,
+            src_ptr,
+            src_tensor.size as usize,
+            cuda_ffi::CudaMemcpyKind::DeviceToDevice,
+        )
+        .map_err(|e| HorusError::Memory(format!("P2P memcpy failed: {}", e)))?;
+
+        Ok(dst_tensor)
+    }
+
+    #[cfg(not(feature = "cuda"))]
+    pub fn copy_p2p(
+        &self,
+        _src_pool: &CudaTensorPool,
+        _src_tensor: &CudaTensor,
+        _dst_pool: &CudaTensorPool,
+    ) -> HorusResult<CudaTensor> {
+        Err(HorusError::Config("CUDA feature not enabled".into()))
+    }
+
+    /// Async P2P copy using CUDA streams
+    #[cfg(feature = "cuda")]
+    pub fn copy_p2p_async(
+        &self,
+        src_pool: &CudaTensorPool,
+        src_tensor: &CudaTensor,
+        dst_pool: &CudaTensorPool,
+        dst_tensor: &CudaTensor,
+        stream: cuda_ffi::CudaStream,
+    ) -> HorusResult<()> {
+        let src_device = src_pool.device_id();
+        let dst_device = dst_pool.device_id();
+
+        // Check P2P is enabled
+        {
+            let connections = self.enabled_connections.lock().unwrap();
+            if src_device != dst_device && !connections.contains(&(dst_device, src_device)) {
+                return Err(HorusError::Config(format!(
+                    "P2P access not enabled from device {} to device {}",
+                    dst_device, src_device
+                )));
+            }
+        }
+
+        // Get pointers
+        let src_ptr = src_pool.device_ptr(src_tensor);
+        let dst_ptr = dst_pool.device_ptr(dst_tensor);
+
+        if src_ptr.is_null() || dst_ptr.is_null() {
+            return Err(HorusError::Memory("Invalid tensor pointers".into()));
+        }
+
+        // Async P2P copy
+        cuda_ffi::memcpy_async(
+            dst_ptr,
+            src_ptr,
+            src_tensor.size as usize,
+            cuda_ffi::CudaMemcpyKind::DeviceToDevice,
+            stream,
+        )
+        .map_err(|e| HorusError::Memory(format!("Async P2P memcpy failed: {}", e)))?;
+
+        Ok(())
+    }
+
+    #[cfg(not(feature = "cuda"))]
+    pub fn copy_p2p_async(
+        &self,
+        _src_pool: &CudaTensorPool,
+        _src_tensor: &CudaTensor,
+        _dst_pool: &CudaTensorPool,
+        _dst_tensor: &CudaTensor,
+        _stream: cuda_ffi::CudaStream,
+    ) -> HorusResult<()> {
+        Err(HorusError::Config("CUDA feature not enabled".into()))
+    }
+}
+
+impl Default for P2PManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for P2PManager {
+    fn drop(&mut self) {
+        // Disable all P2P connections on cleanup
+        #[cfg(feature = "cuda")]
+        {
+            let connections = self.enabled_connections.lock().unwrap().clone();
+            for (device, peer_device) in connections {
+                if cuda_ffi::set_device(device).is_ok() {
+                    let _ = cuda_ffi::device_disable_peer_access(peer_device);
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    // ==========================================================================
+    // Structure and Layout Tests
+    // ==========================================================================
+
     #[test]
     fn test_cuda_tensor_size() {
         // Ensure CudaTensor is a reasonable size for IPC
-        assert!(std::mem::size_of::<CudaTensor>() < 512);
+        let size = std::mem::size_of::<CudaTensor>();
+        println!("CudaTensor size: {} bytes", size);
+        assert!(size < 512, "CudaTensor too large: {} bytes", size);
     }
 
     #[test]
@@ -696,5 +1268,475 @@ mod tests {
         // Ensure slot headers are properly sized
         let size = std::mem::size_of::<CudaSlotHeader>();
         println!("CudaSlotHeader size: {} bytes", size);
+        // Should be reasonably sized for cache efficiency
+        assert!(size <= 512, "CudaSlotHeader too large: {} bytes", size);
+    }
+
+    #[test]
+    fn test_pool_header_size() {
+        let size = std::mem::size_of::<CudaPoolHeader>();
+        println!("CudaPoolHeader size: {} bytes", size);
+        // Should fit in a cache line or two
+        assert!(size <= 128, "CudaPoolHeader too large: {} bytes", size);
+    }
+
+    #[test]
+    fn test_p2p_access_info_clone() {
+        let info = P2PAccessInfo {
+            device: 0,
+            peer_device: 1,
+            can_access: true,
+            is_enabled: false,
+        };
+        let cloned = info.clone();
+        assert_eq!(cloned.device, 0);
+        assert_eq!(cloned.peer_device, 1);
+        assert!(cloned.can_access);
+        assert!(!cloned.is_enabled);
+    }
+
+    // ==========================================================================
+    // CudaTensor View/Slice API Tests
+    // ==========================================================================
+
+    fn create_test_tensor(shape: &[u64], dtype: TensorDtype) -> CudaTensor {
+        let numel: u64 = shape.iter().product();
+        let size = numel * dtype.element_size() as u64;
+
+        let mut tensor = CudaTensor {
+            pool_id: 1,
+            slot_id: 0,
+            generation: 1,
+            device_id: 0,
+            size,
+            numel,
+            offset: 0,
+            dtype,
+            ndim: shape.len() as u8,
+            _pad: [0; 6],
+            shape: [0; MAX_TENSOR_DIMS],
+            strides: [0; MAX_TENSOR_DIMS],
+            ipc_handle: [0; CUDA_IPC_HANDLE_SIZE],
+        };
+
+        // Set shape
+        for (i, &dim) in shape.iter().enumerate() {
+            tensor.shape[i] = dim;
+        }
+
+        // Compute contiguous strides
+        let mut stride = 1u64;
+        for i in (0..shape.len()).rev() {
+            tensor.strides[i] = stride;
+            stride *= shape[i];
+        }
+
+        tensor
+    }
+
+    #[test]
+    fn test_tensor_is_contiguous() {
+        // Contiguous tensor
+        let tensor = create_test_tensor(&[2, 3, 4], TensorDtype::F32);
+        assert!(tensor.is_contiguous());
+
+        // After transpose, should not be contiguous
+        let transposed = tensor.transpose(0, 1).unwrap();
+        assert!(!transposed.is_contiguous());
+    }
+
+    #[test]
+    fn test_tensor_view_same_numel() {
+        let tensor = create_test_tensor(&[2, 3, 4], TensorDtype::F32);
+        assert_eq!(tensor.numel, 24);
+
+        // Reshape to different shape with same numel
+        let viewed = tensor.view(&[4, 6]).unwrap();
+        assert_eq!(viewed.ndim, 2);
+        assert_eq!(viewed.shape[0], 4);
+        assert_eq!(viewed.shape[1], 6);
+        assert_eq!(viewed.numel, 24);
+        assert!(viewed.is_contiguous());
+    }
+
+    #[test]
+    fn test_tensor_view_different_numel_fails() {
+        let tensor = create_test_tensor(&[2, 3, 4], TensorDtype::F32);
+
+        // Different numel should fail
+        let result = tensor.view(&[5, 5]);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_tensor_view_non_contiguous_fails() {
+        let tensor = create_test_tensor(&[2, 3, 4], TensorDtype::F32);
+        let transposed = tensor.transpose(0, 1).unwrap();
+
+        // Non-contiguous tensor can't be reshaped
+        let result = transposed.view(&[24]);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_tensor_slice_first_dim() {
+        let tensor = create_test_tensor(&[10, 5, 3], TensorDtype::F32);
+
+        // Slice first 3 elements
+        let sliced = tensor.slice_first_dim(0, 3).unwrap();
+        assert_eq!(sliced.shape[0], 3);
+        assert_eq!(sliced.shape[1], 5);
+        assert_eq!(sliced.shape[2], 3);
+        assert_eq!(sliced.numel, 45); // 3 * 5 * 3
+        assert_eq!(sliced.offset, 0);
+
+        // Slice middle
+        let sliced2 = tensor.slice_first_dim(2, 7).unwrap();
+        assert_eq!(sliced2.shape[0], 5);
+        assert_eq!(sliced2.numel, 75); // 5 * 5 * 3
+                                       // Offset should be 2 * stride[0] * element_size
+        let expected_offset = 2 * tensor.strides[0] * tensor.dtype.element_size() as u64;
+        assert_eq!(sliced2.offset, expected_offset);
+    }
+
+    #[test]
+    fn test_tensor_slice_first_dim_invalid() {
+        let tensor = create_test_tensor(&[10, 5], TensorDtype::F32);
+
+        // Invalid ranges
+        assert!(tensor.slice_first_dim(5, 3).is_none()); // start >= end
+        assert!(tensor.slice_first_dim(0, 11).is_none()); // end > dim
+        assert!(tensor.slice_first_dim(10, 11).is_none()); // start >= dim
+    }
+
+    #[test]
+    fn test_tensor_slice_any_dim() {
+        let tensor = create_test_tensor(&[4, 6, 8], TensorDtype::F32);
+
+        // Slice along dim 1
+        let sliced = tensor.slice_dim(1, 2, 5).unwrap();
+        assert_eq!(sliced.shape[0], 4);
+        assert_eq!(sliced.shape[1], 3); // 5 - 2 = 3
+        assert_eq!(sliced.shape[2], 8);
+        assert_eq!(sliced.numel, 96); // 4 * 3 * 8
+
+        // Slice along last dim
+        let sliced2 = tensor.slice_dim(2, 0, 4).unwrap();
+        assert_eq!(sliced2.shape[2], 4);
+        assert_eq!(sliced2.numel, 96); // 4 * 6 * 4
+    }
+
+    #[test]
+    fn test_tensor_transpose() {
+        let tensor = create_test_tensor(&[2, 3, 4], TensorDtype::F32);
+
+        let transposed = tensor.transpose(0, 2).unwrap();
+        assert_eq!(transposed.shape[0], 4);
+        assert_eq!(transposed.shape[1], 3);
+        assert_eq!(transposed.shape[2], 2);
+        assert_eq!(transposed.strides[0], tensor.strides[2]);
+        assert_eq!(transposed.strides[2], tensor.strides[0]);
+
+        // Same dim transpose returns copy
+        let same = tensor.transpose(1, 1).unwrap();
+        assert_eq!(same.shape[0], tensor.shape[0]);
+    }
+
+    #[test]
+    fn test_tensor_transpose_invalid() {
+        let tensor = create_test_tensor(&[2, 3], TensorDtype::F32);
+
+        // Invalid dimension
+        assert!(tensor.transpose(0, 3).is_none());
+        assert!(tensor.transpose(5, 0).is_none());
+    }
+
+    #[test]
+    fn test_tensor_squeeze() {
+        let tensor = create_test_tensor(&[1, 3, 1, 4], TensorDtype::F32);
+
+        // Squeeze first dimension
+        let squeezed = tensor.squeeze(0).unwrap();
+        assert_eq!(squeezed.ndim, 3);
+        assert_eq!(squeezed.shape[0], 3);
+        assert_eq!(squeezed.shape[1], 1);
+        assert_eq!(squeezed.shape[2], 4);
+
+        // Squeeze middle dimension
+        let squeezed2 = tensor.squeeze(2).unwrap();
+        assert_eq!(squeezed2.ndim, 3);
+        assert_eq!(squeezed2.shape[0], 1);
+        assert_eq!(squeezed2.shape[1], 3);
+        assert_eq!(squeezed2.shape[2], 4);
+    }
+
+    #[test]
+    fn test_tensor_squeeze_invalid() {
+        let tensor = create_test_tensor(&[2, 3, 4], TensorDtype::F32);
+
+        // Can't squeeze non-1 dimension
+        assert!(tensor.squeeze(0).is_none());
+        assert!(tensor.squeeze(1).is_none());
+
+        // Can't squeeze scalar
+        let scalar = create_test_tensor(&[1], TensorDtype::F32);
+        assert!(scalar.squeeze(0).is_none());
+    }
+
+    #[test]
+    fn test_tensor_unsqueeze() {
+        let tensor = create_test_tensor(&[3, 4], TensorDtype::F32);
+
+        // Unsqueeze at beginning
+        let unsqueezed = tensor.unsqueeze(0).unwrap();
+        assert_eq!(unsqueezed.ndim, 3);
+        assert_eq!(unsqueezed.shape[0], 1);
+        assert_eq!(unsqueezed.shape[1], 3);
+        assert_eq!(unsqueezed.shape[2], 4);
+
+        // Unsqueeze at end
+        let unsqueezed2 = tensor.unsqueeze(2).unwrap();
+        assert_eq!(unsqueezed2.ndim, 3);
+        assert_eq!(unsqueezed2.shape[0], 3);
+        assert_eq!(unsqueezed2.shape[1], 4);
+        assert_eq!(unsqueezed2.shape[2], 1);
+
+        // Unsqueeze in middle
+        let unsqueezed3 = tensor.unsqueeze(1).unwrap();
+        assert_eq!(unsqueezed3.shape[0], 3);
+        assert_eq!(unsqueezed3.shape[1], 1);
+        assert_eq!(unsqueezed3.shape[2], 4);
+    }
+
+    #[test]
+    fn test_tensor_unsqueeze_invalid() {
+        let tensor = create_test_tensor(&[2, 3], TensorDtype::F32);
+
+        // Invalid dimension (> ndim)
+        assert!(tensor.unsqueeze(5).is_none());
+
+        // Can't unsqueeze beyond MAX_TENSOR_DIMS
+        let mut big_tensor = tensor;
+        big_tensor.ndim = MAX_TENSOR_DIMS as u8;
+        assert!(big_tensor.unsqueeze(0).is_none());
+    }
+
+    #[test]
+    fn test_tensor_effective_offset() {
+        let mut tensor = create_test_tensor(&[10, 5], TensorDtype::F32);
+        assert_eq!(tensor.effective_offset(), 0);
+
+        tensor.offset = 100;
+        assert_eq!(tensor.effective_offset(), 100);
+    }
+
+    #[test]
+    fn test_tensor_device() {
+        let mut tensor = create_test_tensor(&[2, 3], TensorDtype::F32);
+
+        tensor.device_id = 0;
+        assert!(matches!(tensor.device(), TensorDevice::Cuda0));
+
+        tensor.device_id = 1;
+        assert!(matches!(tensor.device(), TensorDevice::Cuda1));
+
+        tensor.device_id = 2;
+        assert!(matches!(tensor.device(), TensorDevice::Cuda2));
+
+        tensor.device_id = 3;
+        assert!(matches!(tensor.device(), TensorDevice::Cuda3));
+
+        tensor.device_id = 99;
+        assert!(matches!(tensor.device(), TensorDevice::Cuda0)); // Fallback
+    }
+
+    #[test]
+    fn test_tensor_ipc_handle_bytes() {
+        let mut tensor = create_test_tensor(&[2, 3], TensorDtype::F32);
+        tensor.ipc_handle[0] = 0xAB;
+        tensor.ipc_handle[63] = 0xCD;
+
+        let bytes = tensor.ipc_handle_bytes();
+        assert_eq!(bytes.len(), CUDA_IPC_HANDLE_SIZE);
+        assert_eq!(bytes[0], 0xAB);
+        assert_eq!(bytes[63], 0xCD);
+    }
+
+    // ==========================================================================
+    // Chained Operations Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_tensor_chained_operations() {
+        let tensor = create_test_tensor(&[2, 4, 6, 8], TensorDtype::F32);
+
+        // Chain: slice -> transpose -> squeeze
+        let result = tensor
+            .slice_dim(0, 0, 1) // [1, 4, 6, 8]
+            .and_then(|t| t.squeeze(0)) // [4, 6, 8]
+            .and_then(|t| t.transpose(0, 2)); // [8, 6, 4]
+
+        let result = result.unwrap();
+        assert_eq!(result.ndim, 3);
+        assert_eq!(result.shape[0], 8);
+        assert_eq!(result.shape[1], 6);
+        assert_eq!(result.shape[2], 4);
+    }
+
+    #[test]
+    fn test_tensor_view_to_1d() {
+        let tensor = create_test_tensor(&[2, 3, 4], TensorDtype::F32);
+
+        // Flatten to 1D
+        let flat = tensor.view(&[24]).unwrap();
+        assert_eq!(flat.ndim, 1);
+        assert_eq!(flat.shape[0], 24);
+        assert!(flat.is_contiguous());
+    }
+
+    // ==========================================================================
+    // P2PManager Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_p2p_manager_creation() {
+        let manager = P2PManager::new();
+        assert!(manager.enabled_connections().is_empty());
+    }
+
+    #[test]
+    fn test_p2p_manager_default() {
+        let manager = P2PManager::default();
+        assert!(manager.enabled_connections().is_empty());
+    }
+
+    #[test]
+    fn test_cuda_device_count_no_cuda() {
+        // Without CUDA feature, should return 0
+        #[cfg(not(feature = "cuda"))]
+        {
+            assert_eq!(cuda_device_count(), 0);
+        }
+    }
+
+    #[test]
+    fn test_cuda_available_no_cuda() {
+        #[cfg(not(feature = "cuda"))]
+        {
+            assert!(!cuda_available());
+        }
+    }
+
+    // ==========================================================================
+    // Data Type Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_tensor_different_dtypes() {
+        let f32_tensor = create_test_tensor(&[10, 10], TensorDtype::F32);
+        assert_eq!(f32_tensor.size, 400); // 100 * 4 bytes
+
+        let f64_tensor = create_test_tensor(&[10, 10], TensorDtype::F64);
+        assert_eq!(f64_tensor.size, 800); // 100 * 8 bytes
+
+        let i32_tensor = create_test_tensor(&[10, 10], TensorDtype::I32);
+        assert_eq!(i32_tensor.size, 400); // 100 * 4 bytes
+
+        let u8_tensor = create_test_tensor(&[10, 10], TensorDtype::U8);
+        assert_eq!(u8_tensor.size, 100); // 100 * 1 byte
+    }
+
+    #[test]
+    fn test_tensor_slice_preserves_dtype() {
+        let tensor = create_test_tensor(&[10, 5], TensorDtype::F64);
+        let sliced = tensor.slice_first_dim(0, 5).unwrap();
+        assert!(matches!(sliced.dtype, TensorDtype::F64));
+    }
+
+    // ==========================================================================
+    // Edge Cases
+    // ==========================================================================
+
+    #[test]
+    fn test_tensor_1d_operations() {
+        let tensor = create_test_tensor(&[100], TensorDtype::F32);
+
+        // Slice
+        let sliced = tensor.slice_first_dim(10, 50).unwrap();
+        assert_eq!(sliced.shape[0], 40);
+        assert_eq!(sliced.numel, 40);
+
+        // Can't squeeze 1D tensor
+        assert!(tensor.squeeze(0).is_none());
+
+        // Unsqueeze works
+        let unsqueezed = tensor.unsqueeze(0).unwrap();
+        assert_eq!(unsqueezed.ndim, 2);
+        assert_eq!(unsqueezed.shape[0], 1);
+        assert_eq!(unsqueezed.shape[1], 100);
+    }
+
+    #[test]
+    fn test_tensor_scalar_like() {
+        // Single element tensor
+        let tensor = create_test_tensor(&[1, 1, 1], TensorDtype::F32);
+        assert_eq!(tensor.numel, 1);
+        assert!(tensor.is_contiguous());
+
+        // Can squeeze to 2D
+        let squeezed = tensor.squeeze(0).unwrap();
+        assert_eq!(squeezed.ndim, 2);
+    }
+
+    #[test]
+    fn test_tensor_large_shape() {
+        // Large tensor
+        let tensor = create_test_tensor(&[1000, 1000, 10], TensorDtype::F32);
+        assert_eq!(tensor.numel, 10_000_000);
+        assert_eq!(tensor.size, 40_000_000); // 10M * 4 bytes
+
+        // Slice should still work
+        let sliced = tensor.slice_first_dim(500, 600).unwrap();
+        assert_eq!(sliced.numel, 1_000_000); // 100 * 1000 * 10
+    }
+
+    #[test]
+    fn test_tensor_strides_calculation() {
+        let tensor = create_test_tensor(&[2, 3, 4], TensorDtype::F32);
+
+        // Row-major strides: [12, 4, 1]
+        assert_eq!(tensor.strides[0], 12); // 3 * 4
+        assert_eq!(tensor.strides[1], 4); // 4
+        assert_eq!(tensor.strides[2], 1); // 1
+    }
+
+    #[test]
+    fn test_invalid_slot_constant() {
+        assert_eq!(INVALID_SLOT, u32::MAX);
+    }
+
+    // ==========================================================================
+    // Pool Configuration Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_pool_config_default() {
+        let config = CudaTensorPoolConfig::default();
+        assert_eq!(config.max_slots, MAX_CUDA_SLOTS);
+    }
+
+    #[test]
+    fn test_pool_stats_structure() {
+        let stats = CudaPoolStats {
+            pool_id: 42,
+            device_id: 0,
+            max_slots: 256,
+            allocated_slots: 10,
+        };
+
+        assert_eq!(stats.pool_id, 42);
+        assert_eq!(stats.device_id, 0);
+        assert_eq!(stats.max_slots, 256);
+        assert_eq!(stats.allocated_slots, 10);
     }
 }

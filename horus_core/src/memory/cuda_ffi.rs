@@ -124,6 +124,47 @@ pub enum CudaMemcpyKind {
     Default = 4,
 }
 
+/// Opaque CUDA stream handle
+pub type CudaStream = *mut c_void;
+
+/// Opaque CUDA event handle
+pub type CudaEvent = *mut c_void;
+
+/// Stream creation flags
+#[repr(u32)]
+#[derive(Debug, Clone, Copy)]
+pub enum CudaStreamFlags {
+    Default = 0,
+    NonBlocking = 1,
+}
+
+/// Event creation flags
+#[repr(u32)]
+#[derive(Debug, Clone, Copy)]
+pub enum CudaEventFlags {
+    Default = 0,
+    BlockingSync = 1,
+    DisableTiming = 2,
+    Interprocess = 4,
+}
+
+/// Host register flags for pinned memory
+#[repr(u32)]
+#[derive(Debug, Clone, Copy)]
+pub enum CudaHostRegisterFlags {
+    Default = 0,
+    Portable = 1,
+    Mapped = 2,
+    IoMemory = 4,
+}
+
+/// Peer access flags
+#[repr(u32)]
+#[derive(Debug, Clone, Copy)]
+pub enum CudaPeerAccessFlags {
+    Default = 0,
+}
+
 // FFI declarations - linked against libcudart.so at runtime
 #[cfg(feature = "cuda")]
 extern "C" {
@@ -148,6 +189,49 @@ extern "C" {
     // Error handling
     fn cudaGetLastError() -> i32;
     fn cudaPeekAtLastError() -> i32;
+
+    // Stream management
+    fn cudaStreamCreate(stream: *mut CudaStream) -> i32;
+    fn cudaStreamCreateWithFlags(stream: *mut CudaStream, flags: u32) -> i32;
+    fn cudaStreamDestroy(stream: CudaStream) -> i32;
+    fn cudaStreamSynchronize(stream: CudaStream) -> i32;
+    fn cudaStreamQuery(stream: CudaStream) -> i32;
+
+    // Event management
+    fn cudaEventCreate(event: *mut CudaEvent) -> i32;
+    fn cudaEventCreateWithFlags(event: *mut CudaEvent, flags: u32) -> i32;
+    fn cudaEventDestroy(event: CudaEvent) -> i32;
+    fn cudaEventRecord(event: CudaEvent, stream: CudaStream) -> i32;
+    fn cudaEventSynchronize(event: CudaEvent) -> i32;
+    fn cudaEventQuery(event: CudaEvent) -> i32;
+    fn cudaEventElapsedTime(ms: *mut f32, start: CudaEvent, end: CudaEvent) -> i32;
+    fn cudaStreamWaitEvent(stream: CudaStream, event: CudaEvent, flags: u32) -> i32;
+
+    // Pinned (page-locked) host memory
+    fn cudaMallocHost(ptr: *mut *mut c_void, size: usize) -> i32;
+    fn cudaFreeHost(ptr: *mut c_void) -> i32;
+    fn cudaHostRegister(ptr: *mut c_void, size: usize, flags: u32) -> i32;
+    fn cudaHostUnregister(ptr: *mut c_void) -> i32;
+    fn cudaHostGetDevicePointer(
+        dev_ptr: *mut *mut c_void,
+        host_ptr: *mut c_void,
+        flags: u32,
+    ) -> i32;
+
+    // Async memory operations
+    fn cudaMemcpyAsync(
+        dst: *mut c_void,
+        src: *const c_void,
+        count: usize,
+        kind: i32,
+        stream: CudaStream,
+    ) -> i32;
+    fn cudaMemsetAsync(dev_ptr: *mut c_void, value: i32, count: usize, stream: CudaStream) -> i32;
+
+    // Multi-GPU peer access
+    fn cudaDeviceCanAccessPeer(can_access: *mut i32, device: i32, peer_device: i32) -> i32;
+    fn cudaDeviceEnablePeerAccess(peer_device: i32, flags: u32) -> i32;
+    fn cudaDeviceDisablePeerAccess(peer_device: i32) -> i32;
 }
 
 /// Result type for CUDA operations
@@ -405,6 +489,482 @@ pub fn peek_at_last_error() -> CudaError {
 #[cfg(not(feature = "cuda"))]
 pub fn peek_at_last_error() -> CudaError {
     CudaError::NotSupported
+}
+
+// ============================================================================
+// Stream Management
+// ============================================================================
+
+/// Create a new CUDA stream
+#[cfg(feature = "cuda")]
+pub fn stream_create() -> CudaResult<CudaStream> {
+    let mut stream: CudaStream = ptr::null_mut();
+    unsafe {
+        let err = CudaError::from_code(cudaStreamCreate(&mut stream));
+        if err.is_success() {
+            Ok(stream)
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn stream_create() -> CudaResult<CudaStream> {
+    Err(CudaError::NotSupported)
+}
+
+/// Create a CUDA stream with flags
+#[cfg(feature = "cuda")]
+pub fn stream_create_with_flags(flags: CudaStreamFlags) -> CudaResult<CudaStream> {
+    let mut stream: CudaStream = ptr::null_mut();
+    unsafe {
+        let err = CudaError::from_code(cudaStreamCreateWithFlags(&mut stream, flags as u32));
+        if err.is_success() {
+            Ok(stream)
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn stream_create_with_flags(_flags: CudaStreamFlags) -> CudaResult<CudaStream> {
+    Err(CudaError::NotSupported)
+}
+
+/// Destroy a CUDA stream
+#[cfg(feature = "cuda")]
+pub fn stream_destroy(stream: CudaStream) -> CudaResult<()> {
+    unsafe {
+        let err = CudaError::from_code(cudaStreamDestroy(stream));
+        if err.is_success() {
+            Ok(())
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn stream_destroy(_stream: CudaStream) -> CudaResult<()> {
+    Err(CudaError::NotSupported)
+}
+
+/// Synchronize a CUDA stream (wait for all operations to complete)
+#[cfg(feature = "cuda")]
+pub fn stream_synchronize(stream: CudaStream) -> CudaResult<()> {
+    unsafe {
+        let err = CudaError::from_code(cudaStreamSynchronize(stream));
+        if err.is_success() {
+            Ok(())
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn stream_synchronize(_stream: CudaStream) -> CudaResult<()> {
+    Err(CudaError::NotSupported)
+}
+
+/// Query if stream operations are complete (non-blocking)
+#[cfg(feature = "cuda")]
+pub fn stream_query(stream: CudaStream) -> CudaResult<bool> {
+    unsafe {
+        let err = CudaError::from_code(cudaStreamQuery(stream));
+        match err {
+            CudaError::Success => Ok(true),
+            CudaError::NotReady => Ok(false),
+            _ => Err(err),
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn stream_query(_stream: CudaStream) -> CudaResult<bool> {
+    Err(CudaError::NotSupported)
+}
+
+// ============================================================================
+// Event Management
+// ============================================================================
+
+/// Create a new CUDA event
+#[cfg(feature = "cuda")]
+pub fn event_create() -> CudaResult<CudaEvent> {
+    let mut event: CudaEvent = ptr::null_mut();
+    unsafe {
+        let err = CudaError::from_code(cudaEventCreate(&mut event));
+        if err.is_success() {
+            Ok(event)
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn event_create() -> CudaResult<CudaEvent> {
+    Err(CudaError::NotSupported)
+}
+
+/// Create a CUDA event with flags
+#[cfg(feature = "cuda")]
+pub fn event_create_with_flags(flags: CudaEventFlags) -> CudaResult<CudaEvent> {
+    let mut event: CudaEvent = ptr::null_mut();
+    unsafe {
+        let err = CudaError::from_code(cudaEventCreateWithFlags(&mut event, flags as u32));
+        if err.is_success() {
+            Ok(event)
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn event_create_with_flags(_flags: CudaEventFlags) -> CudaResult<CudaEvent> {
+    Err(CudaError::NotSupported)
+}
+
+/// Destroy a CUDA event
+#[cfg(feature = "cuda")]
+pub fn event_destroy(event: CudaEvent) -> CudaResult<()> {
+    unsafe {
+        let err = CudaError::from_code(cudaEventDestroy(event));
+        if err.is_success() {
+            Ok(())
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn event_destroy(_event: CudaEvent) -> CudaResult<()> {
+    Err(CudaError::NotSupported)
+}
+
+/// Record an event on a stream
+#[cfg(feature = "cuda")]
+pub fn event_record(event: CudaEvent, stream: CudaStream) -> CudaResult<()> {
+    unsafe {
+        let err = CudaError::from_code(cudaEventRecord(event, stream));
+        if err.is_success() {
+            Ok(())
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn event_record(_event: CudaEvent, _stream: CudaStream) -> CudaResult<()> {
+    Err(CudaError::NotSupported)
+}
+
+/// Synchronize on an event (wait for it to complete)
+#[cfg(feature = "cuda")]
+pub fn event_synchronize(event: CudaEvent) -> CudaResult<()> {
+    unsafe {
+        let err = CudaError::from_code(cudaEventSynchronize(event));
+        if err.is_success() {
+            Ok(())
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn event_synchronize(_event: CudaEvent) -> CudaResult<()> {
+    Err(CudaError::NotSupported)
+}
+
+/// Query if event has completed (non-blocking)
+#[cfg(feature = "cuda")]
+pub fn event_query(event: CudaEvent) -> CudaResult<bool> {
+    unsafe {
+        let err = CudaError::from_code(cudaEventQuery(event));
+        match err {
+            CudaError::Success => Ok(true),
+            CudaError::NotReady => Ok(false),
+            _ => Err(err),
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn event_query(_event: CudaEvent) -> CudaResult<bool> {
+    Err(CudaError::NotSupported)
+}
+
+/// Get elapsed time between two events in milliseconds
+#[cfg(feature = "cuda")]
+pub fn event_elapsed_time(start: CudaEvent, end: CudaEvent) -> CudaResult<f32> {
+    let mut ms: f32 = 0.0;
+    unsafe {
+        let err = CudaError::from_code(cudaEventElapsedTime(&mut ms, start, end));
+        if err.is_success() {
+            Ok(ms)
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn event_elapsed_time(_start: CudaEvent, _end: CudaEvent) -> CudaResult<f32> {
+    Err(CudaError::NotSupported)
+}
+
+/// Make a stream wait for an event
+#[cfg(feature = "cuda")]
+pub fn stream_wait_event(stream: CudaStream, event: CudaEvent) -> CudaResult<()> {
+    unsafe {
+        let err = CudaError::from_code(cudaStreamWaitEvent(stream, event, 0));
+        if err.is_success() {
+            Ok(())
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn stream_wait_event(_stream: CudaStream, _event: CudaEvent) -> CudaResult<()> {
+    Err(CudaError::NotSupported)
+}
+
+// ============================================================================
+// Pinned (Page-Locked) Host Memory
+// ============================================================================
+
+/// Allocate pinned (page-locked) host memory for faster CPU↔GPU transfers
+#[cfg(feature = "cuda")]
+pub fn malloc_host(size: usize) -> CudaResult<*mut c_void> {
+    let mut ptr: *mut c_void = ptr::null_mut();
+    unsafe {
+        let err = CudaError::from_code(cudaMallocHost(&mut ptr, size));
+        if err.is_success() {
+            Ok(ptr)
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn malloc_host(_size: usize) -> CudaResult<*mut c_void> {
+    Err(CudaError::NotSupported)
+}
+
+/// Free pinned host memory
+#[cfg(feature = "cuda")]
+pub fn free_host(ptr: *mut c_void) -> CudaResult<()> {
+    unsafe {
+        let err = CudaError::from_code(cudaFreeHost(ptr));
+        if err.is_success() {
+            Ok(())
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn free_host(_ptr: *mut c_void) -> CudaResult<()> {
+    Err(CudaError::NotSupported)
+}
+
+/// Register existing host memory as pinned (page-lock it)
+#[cfg(feature = "cuda")]
+pub fn host_register(
+    ptr: *mut c_void,
+    size: usize,
+    flags: CudaHostRegisterFlags,
+) -> CudaResult<()> {
+    unsafe {
+        let err = CudaError::from_code(cudaHostRegister(ptr, size, flags as u32));
+        if err.is_success() {
+            Ok(())
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn host_register(
+    _ptr: *mut c_void,
+    _size: usize,
+    _flags: CudaHostRegisterFlags,
+) -> CudaResult<()> {
+    Err(CudaError::NotSupported)
+}
+
+/// Unregister previously registered pinned memory
+#[cfg(feature = "cuda")]
+pub fn host_unregister(ptr: *mut c_void) -> CudaResult<()> {
+    unsafe {
+        let err = CudaError::from_code(cudaHostUnregister(ptr));
+        if err.is_success() {
+            Ok(())
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn host_unregister(_ptr: *mut c_void) -> CudaResult<()> {
+    Err(CudaError::NotSupported)
+}
+
+/// Get device pointer for mapped pinned memory
+#[cfg(feature = "cuda")]
+pub fn host_get_device_pointer(host_ptr: *mut c_void) -> CudaResult<*mut c_void> {
+    let mut dev_ptr: *mut c_void = ptr::null_mut();
+    unsafe {
+        let err = CudaError::from_code(cudaHostGetDevicePointer(&mut dev_ptr, host_ptr, 0));
+        if err.is_success() {
+            Ok(dev_ptr)
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn host_get_device_pointer(_host_ptr: *mut c_void) -> CudaResult<*mut c_void> {
+    Err(CudaError::NotSupported)
+}
+
+// ============================================================================
+// Async Memory Operations
+// ============================================================================
+
+/// Async memory copy (non-blocking, uses stream)
+#[cfg(feature = "cuda")]
+pub fn memcpy_async(
+    dst: *mut c_void,
+    src: *const c_void,
+    size: usize,
+    kind: CudaMemcpyKind,
+    stream: CudaStream,
+) -> CudaResult<()> {
+    unsafe {
+        let err = CudaError::from_code(cudaMemcpyAsync(dst, src, size, kind as i32, stream));
+        if err.is_success() {
+            Ok(())
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn memcpy_async(
+    _dst: *mut c_void,
+    _src: *const c_void,
+    _size: usize,
+    _kind: CudaMemcpyKind,
+    _stream: CudaStream,
+) -> CudaResult<()> {
+    Err(CudaError::NotSupported)
+}
+
+/// Async memset (non-blocking, uses stream)
+#[cfg(feature = "cuda")]
+pub fn memset_async(
+    ptr: *mut c_void,
+    value: i32,
+    size: usize,
+    stream: CudaStream,
+) -> CudaResult<()> {
+    unsafe {
+        let err = CudaError::from_code(cudaMemsetAsync(ptr, value, size, stream));
+        if err.is_success() {
+            Ok(())
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn memset_async(
+    _ptr: *mut c_void,
+    _value: i32,
+    _size: usize,
+    _stream: CudaStream,
+) -> CudaResult<()> {
+    Err(CudaError::NotSupported)
+}
+
+// ============================================================================
+// Multi-GPU Peer Access
+// ============================================================================
+
+/// Check if peer access is possible between two devices
+#[cfg(feature = "cuda")]
+pub fn device_can_access_peer(device: i32, peer_device: i32) -> CudaResult<bool> {
+    let mut can_access: i32 = 0;
+    unsafe {
+        let err = CudaError::from_code(cudaDeviceCanAccessPeer(
+            &mut can_access,
+            device,
+            peer_device,
+        ));
+        if err.is_success() {
+            Ok(can_access != 0)
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn device_can_access_peer(_device: i32, _peer_device: i32) -> CudaResult<bool> {
+    Err(CudaError::NotSupported)
+}
+
+/// Enable peer access from current device to peer device
+#[cfg(feature = "cuda")]
+pub fn device_enable_peer_access(peer_device: i32) -> CudaResult<()> {
+    unsafe {
+        let err = CudaError::from_code(cudaDeviceEnablePeerAccess(peer_device, 0));
+        if err.is_success() {
+            Ok(())
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn device_enable_peer_access(_peer_device: i32) -> CudaResult<()> {
+    Err(CudaError::NotSupported)
+}
+
+/// Disable peer access from current device to peer device
+#[cfg(feature = "cuda")]
+pub fn device_disable_peer_access(peer_device: i32) -> CudaResult<()> {
+    unsafe {
+        let err = CudaError::from_code(cudaDeviceDisablePeerAccess(peer_device));
+        if err.is_success() {
+            Ok(())
+        } else {
+            Err(err)
+        }
+    }
+}
+
+#[cfg(not(feature = "cuda"))]
+pub fn device_disable_peer_access(_peer_device: i32) -> CudaResult<()> {
+    Err(CudaError::NotSupported)
 }
 
 #[cfg(test)]

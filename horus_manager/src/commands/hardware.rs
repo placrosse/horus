@@ -40,8 +40,14 @@ pub fn run_scan(options: HardwareScanOptions) -> HorusResult<()> {
         scan_serial: options.serial,
         scan_i2c: options.i2c,
         probe_i2c: options.probe_i2c,
+        scan_spi: options.spi,
+        scan_can: options.can,
         scan_gpio: options.gpio,
+        scan_pwm: options.pwm,
         scan_cameras: options.cameras,
+        scan_bluetooth: options.bluetooth,
+        scan_network: options.network,
+        scan_audio: options.audio,
         probe_timeout: timeout,
     };
 
@@ -49,7 +55,7 @@ pub fn run_scan(options: HardwareScanOptions) -> HorusResult<()> {
         .map_err(|e| horus_core::error::HorusError::Config(e))?;
 
     // Set up progress bar
-    let pb = ProgressBar::new(6);
+    let pb = ProgressBar::new(12);
     pb.set_style(
         ProgressStyle::default_bar()
             .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
@@ -238,6 +244,206 @@ pub fn run_scan(options: HardwareScanOptions) -> HorusResult<()> {
         println!();
     }
 
+    // SPI Buses (Linux only)
+    #[cfg(target_os = "linux")]
+    if options.spi && !report.spi_buses.is_empty() {
+        println!("{}", "SPI Buses".cyan().bold());
+        for bus in &report.spi_buses {
+            let name = bus.controller_name.as_deref().unwrap_or("SPI");
+            println!(
+                "  {} {} [{} chip selects]",
+                format!("{}{}", name, bus.bus_number).yellow(),
+                bus.device_path.display(),
+                bus.chip_selects.len()
+            );
+
+            if options.verbose {
+                for cs in &bus.chip_selects {
+                    println!(
+                        "      {} {} {}",
+                        format!("CS{}:", cs.cs_number).dimmed(),
+                        cs.device_path.display(),
+                        if cs.accessible { "(accessible)" } else { "" }
+                    );
+                }
+            }
+        }
+        println!();
+    }
+
+    // CAN Interfaces (Linux only)
+    #[cfg(target_os = "linux")]
+    if options.can && !report.can_interfaces.is_empty() {
+        use horus_core::hardware::format_bitrate;
+        println!("{}", "CAN Interfaces".cyan().bold());
+        for iface in &report.can_interfaces {
+            let state = format!("{:?}", iface.state);
+            println!(
+                "  {} [{:?}] {}",
+                iface.name.yellow(),
+                iface.interface_type,
+                state.dimmed()
+            );
+
+            if options.verbose {
+                if let Some(bitrate) = iface.bitrate {
+                    println!("      {} {}", "Bitrate:".dimmed(), format_bitrate(bitrate));
+                }
+                if let Some(ref driver) = iface.driver {
+                    println!("      {} {}", "Driver:".dimmed(), driver);
+                }
+            }
+        }
+        println!();
+    }
+
+    // PWM Chips (Linux only)
+    #[cfg(target_os = "linux")]
+    if options.pwm && !report.pwm_chips.is_empty() {
+        println!("{}", "PWM Chips".cyan().bold());
+        for chip in &report.pwm_chips {
+            let default_name = format!("pwmchip{}", chip.chip_number);
+            let name = chip.device_name.as_deref().unwrap_or(&default_name);
+            println!("  {} [{} channels]", name.yellow(), chip.npwm);
+
+            if options.verbose {
+                for channel in &chip.channels {
+                    let status = if channel.enabled {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    };
+                    println!(
+                        "      {} {} ({})",
+                        format!("PWM{}:", channel.channel_number).dimmed(),
+                        channel.sysfs_path.display(),
+                        status
+                    );
+                }
+            }
+        }
+        println!();
+    }
+
+    // Bluetooth Adapters (Linux only)
+    #[cfg(target_os = "linux")]
+    if options.bluetooth && !report.bluetooth_adapters.is_empty() {
+        println!("{}", "Bluetooth Adapters".cyan().bold());
+        for adapter in &report.bluetooth_adapters {
+            let state = format!("{:?}", adapter.state);
+            let ble = if adapter.ble_support { " BLE" } else { "" };
+            println!(
+                "  {} [{:?}] {}{}",
+                adapter.name.yellow(),
+                adapter.adapter_type,
+                state.dimmed(),
+                ble.green()
+            );
+
+            if options.verbose {
+                if let Some(ref addr) = adapter.address {
+                    println!("      {} {}", "Address:".dimmed(), addr);
+                }
+                if let Some(ref mfr) = adapter.manufacturer {
+                    println!("      {} {}", "Manufacturer:".dimmed(), mfr);
+                }
+                if let Some(ref ver) = adapter.bt_version {
+                    println!("      {} {}", "Version:".dimmed(), ver);
+                }
+                if !adapter.connected_devices.is_empty() {
+                    println!(
+                        "      {} {} connected",
+                        "Devices:".dimmed(),
+                        adapter.connected_devices.len()
+                    );
+                }
+            }
+        }
+        println!();
+    }
+
+    // Network Interfaces (Linux only)
+    #[cfg(target_os = "linux")]
+    if options.network && !report.network_interfaces.is_empty() {
+        println!("{}", "Network Interfaces".cyan().bold());
+        for iface in &report.network_interfaces {
+            let state = format!("{:?}", iface.state);
+            println!(
+                "  {} [{:?}] {}",
+                iface.name.yellow(),
+                iface.interface_type,
+                state.dimmed()
+            );
+
+            if options.verbose {
+                if let Some(ref mac) = iface.mac_address {
+                    println!("      {} {}", "MAC:".dimmed(), mac);
+                }
+                if !iface.ipv4_addresses.is_empty() {
+                    println!(
+                        "      {} {}",
+                        "IP:".dimmed(),
+                        iface.ipv4_addresses.join(", ")
+                    );
+                }
+                if let Some(speed) = iface.speed_mbps {
+                    println!("      {} {} Mbps", "Speed:".dimmed(), speed);
+                }
+                if let Some(ref wifi) = iface.wifi_info {
+                    let ssid = wifi.ssid.as_deref().unwrap_or("unknown");
+                    let signal = wifi
+                        .signal_dbm
+                        .map_or("N/A".to_string(), |s| format!("{}", s));
+                    println!("      {} {} ({}dBm)", "SSID:".dimmed(), ssid, signal);
+                }
+            }
+        }
+        println!();
+    }
+
+    // Audio Cards (Linux only)
+    #[cfg(target_os = "linux")]
+    if options.audio && !report.audio_cards.is_empty() {
+        println!("{}", "Audio Cards".cyan().bold());
+        for card in &report.audio_cards {
+            let caps = format!(
+                "{}{}",
+                if card.can_playback() { "playback" } else { "" },
+                if card.can_capture() {
+                    if card.can_playback() {
+                        "/capture"
+                    } else {
+                        "capture"
+                    }
+                } else {
+                    ""
+                }
+            );
+            println!(
+                "  {} {} [{:?}] ({})",
+                card.device_spec().yellow(),
+                card.card_name,
+                card.device_type,
+                caps.dimmed()
+            );
+
+            if options.verbose {
+                if let Some(ref driver) = card.driver {
+                    println!("      {} {}", "Driver:".dimmed(), driver);
+                }
+                for device in &card.devices {
+                    println!(
+                        "      {} {} ({:?})",
+                        device.device_spec().dimmed(),
+                        device.device_name,
+                        device.direction
+                    );
+                }
+            }
+        }
+        println!();
+    }
+
     // Summary
     println!("{}", "Summary".cyan().bold());
     println!(
@@ -245,10 +451,20 @@ pub fn run_scan(options: HardwareScanOptions) -> HorusResult<()> {
         summary.usb_count, summary.serial_count
     );
     #[cfg(target_os = "linux")]
-    println!(
-        "  {} I2C buses, {} GPIO chips, {} cameras",
-        summary.i2c_bus_count, summary.gpio_chip_count, summary.camera_count
-    );
+    {
+        println!(
+            "  {} I2C buses, {} SPI buses, {} CAN interfaces",
+            summary.i2c_bus_count, summary.spi_bus_count, summary.can_interface_count
+        );
+        println!(
+            "  {} GPIO chips, {} PWM chips, {} cameras",
+            summary.gpio_chip_count, summary.pwm_chip_count, summary.camera_count
+        );
+        println!(
+            "  {} Bluetooth adapters, {} network interfaces, {} audio cards",
+            summary.bluetooth_count, summary.network_count, summary.audio_count
+        );
+    }
     println!("  {} total devices discovered", summary.total_devices);
     println!(
         "  {} devices with HORUS driver suggestions",
@@ -415,15 +631,27 @@ pub struct HardwareScanOptions {
     pub i2c: bool,
     /// Probe I2C addresses (may require root)
     pub probe_i2c: bool,
+    /// Scan SPI buses
+    pub spi: bool,
+    /// Scan CAN interfaces
+    pub can: bool,
     /// Scan GPIO chips
     pub gpio: bool,
+    /// Scan PWM chips
+    pub pwm: bool,
     /// Scan cameras
     pub cameras: bool,
+    /// Scan Bluetooth adapters
+    pub bluetooth: bool,
+    /// Scan network interfaces
+    pub network: bool,
+    /// Scan audio devices
+    pub audio: bool,
     /// Verbose output
     pub verbose: bool,
     /// Output as JSON
     pub json: bool,
-    /// Category filter (comma-separated: usb,serial,i2c,gpio,cameras,sensors,motors)
+    /// Category filter (comma-separated: usb,serial,i2c,spi,can,gpio,pwm,cameras,bluetooth,network,audio)
     pub filter: Option<String>,
     /// Timeout per probe in milliseconds
     pub timeout_ms: Option<u64>,
@@ -438,8 +666,14 @@ impl Default for HardwareScanOptions {
             serial: true,
             i2c: true,
             probe_i2c: false,
+            spi: true,
+            can: true,
             gpio: true,
+            pwm: true,
             cameras: true,
+            bluetooth: true,
+            network: true,
+            audio: true,
             verbose: false,
             json: false,
             filter: None,
@@ -472,8 +706,14 @@ fn run_scan_json(options: HardwareScanOptions) -> HorusResult<()> {
         scan_serial: options.serial,
         scan_i2c: options.i2c,
         probe_i2c: options.probe_i2c,
+        scan_spi: options.spi,
+        scan_can: options.can,
         scan_gpio: options.gpio,
+        scan_pwm: options.pwm,
         scan_cameras: options.cameras,
+        scan_bluetooth: options.bluetooth,
+        scan_network: options.network,
+        scan_audio: options.audio,
         probe_timeout: timeout,
     };
 
@@ -734,8 +974,14 @@ fn get_device_snapshot(options: &HardwareScanOptions) -> HorusResult<HashSet<Dev
         scan_serial: options.serial,
         scan_i2c: options.i2c,
         probe_i2c: options.probe_i2c,
+        scan_spi: options.spi,
+        scan_can: options.can,
         scan_gpio: options.gpio,
+        scan_pwm: options.pwm,
         scan_cameras: options.cameras,
+        scan_bluetooth: options.bluetooth,
+        scan_network: options.network,
+        scan_audio: options.audio,
         probe_timeout: timeout,
     };
 

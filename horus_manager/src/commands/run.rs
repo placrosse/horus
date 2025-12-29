@@ -627,11 +627,28 @@ fn execute_single_file(
     if !dependencies.is_empty() {
         eprintln!("{} Found {} dependencies", "".cyan(), dependencies.len());
 
+        // For Rust, filter out core HORUS crates - they're handled as path dependencies
+        // and are NOT in the package registry. Including them causes install loops.
+        let deps_to_resolve: HashSet<String> = if language == "rust" {
+            let core_crates = ["horus", "horus_core", "horus_library", "horus_macros"];
+            dependencies
+                .into_iter()
+                .filter(|dep| {
+                    let base_name = dep.split('@').next().unwrap_or(dep);
+                    !core_crates.contains(&base_name)
+                })
+                .collect()
+        } else {
+            dependencies
+        };
+
         // Resolve dependencies with language context
         // This ensures cargo library dependencies are handled correctly:
         // - For Rust: cargo deps go to Cargo.toml, not cargo install
         // - For Python: cargo deps are skipped entirely (they're library crates)
-        resolve_dependencies_with_context(dependencies, Some(&language))?;
+        if !deps_to_resolve.is_empty() {
+            resolve_dependencies_with_context(deps_to_resolve, Some(&language))?;
+        }
     }
 
     // Setup environment
@@ -1078,8 +1095,22 @@ fn build_rust_files_batch(
     let dependencies_to_resolve: HashSet<String> = {
         let (horus_pkgs, pip_pkgs, _cargo_pkgs) =
             split_dependencies_with_context(all_dependencies.clone(), Some("rust"));
-        // Reconstruct set with only HORUS and pip packages
-        horus_pkgs
+
+        // Filter out core HORUS crates - these are handled as path dependencies in Cargo.toml
+        // and are NOT in the package registry. Including them causes install loops.
+        // See: Issue with "horus clean -a" followed by "horus run nodes/*"
+        let core_crates = ["horus", "horus_core", "horus_library", "horus_macros"];
+        let registry_horus_pkgs: Vec<String> = horus_pkgs
+            .into_iter()
+            .filter(|pkg| {
+                // Get base package name (without version)
+                let base_name = pkg.split('@').next().unwrap_or(pkg);
+                !core_crates.contains(&base_name)
+            })
+            .collect();
+
+        // Reconstruct set with only HORUS registry packages and pip packages
+        registry_horus_pkgs
             .into_iter()
             .chain(pip_pkgs.into_iter().map(|p| {
                 if let Some(ref v) = p.version {
@@ -1137,15 +1168,25 @@ path = "{}"
     // Add dependencies section
     cargo_toml.push_str("[dependencies]\n");
 
-    // Add HORUS core dependencies
+    // Add HORUS core dependencies (all horus_* crates that might be imported)
+    // This fixes Issue #26: users shouldn't need to explicitly add horus_core to horus.yaml
     if horus_source.ends_with(".horus/cache") || horus_source.ends_with(".horus\\cache") {
+        let cache_base = horus_source.join("horus@0.1.0");
         cargo_toml.push_str(&format!(
             "horus = {{ path = \"{}\" }}\n",
-            horus_source.join("horus@0.1.0/horus").display()
+            cache_base.join("horus").display()
+        ));
+        cargo_toml.push_str(&format!(
+            "horus_core = {{ path = \"{}\" }}\n",
+            cache_base.join("horus_core").display()
         ));
         cargo_toml.push_str(&format!(
             "horus_library = {{ path = \"{}\" }}\n",
-            horus_source.join("horus@0.1.0/horus_library").display()
+            cache_base.join("horus_library").display()
+        ));
+        cargo_toml.push_str(&format!(
+            "horus_macros = {{ path = \"{}\" }}\n",
+            cache_base.join("horus_macros").display()
         ));
     } else {
         cargo_toml.push_str(&format!(
@@ -1153,8 +1194,16 @@ path = "{}"
             horus_source.join("horus").display()
         ));
         cargo_toml.push_str(&format!(
+            "horus_core = {{ path = \"{}\" }}\n",
+            horus_source.join("horus_core").display()
+        ));
+        cargo_toml.push_str(&format!(
             "horus_library = {{ path = \"{}\" }}\n",
             horus_source.join("horus_library").display()
+        ));
+        cargo_toml.push_str(&format!(
+            "horus_macros = {{ path = \"{}\" }}\n",
+            horus_source.join("horus_macros").display()
         ));
     }
 
@@ -1275,15 +1324,25 @@ path = "{}"
                 name, name, source_relative_path
             );
 
-            // Add HORUS dependencies
+            // Add HORUS dependencies (all horus_* crates that might be imported)
+            // This fixes Issue #26: users shouldn't need to explicitly add horus_core to horus.yaml
             if horus_source.ends_with(".horus/cache") || horus_source.ends_with(".horus\\cache") {
+                let cache_base = horus_source.join("horus@0.1.0");
                 cargo_toml.push_str(&format!(
                     "horus = {{ path = \"{}\" }}\n",
-                    horus_source.join("horus@0.1.0/horus").display()
+                    cache_base.join("horus").display()
+                ));
+                cargo_toml.push_str(&format!(
+                    "horus_core = {{ path = \"{}\" }}\n",
+                    cache_base.join("horus_core").display()
                 ));
                 cargo_toml.push_str(&format!(
                     "horus_library = {{ path = \"{}\" }}\n",
-                    horus_source.join("horus@0.1.0/horus_library").display()
+                    cache_base.join("horus_library").display()
+                ));
+                cargo_toml.push_str(&format!(
+                    "horus_macros = {{ path = \"{}\" }}\n",
+                    cache_base.join("horus_macros").display()
                 ));
             } else {
                 cargo_toml.push_str(&format!(
@@ -1291,8 +1350,16 @@ path = "{}"
                     horus_source.join("horus").display()
                 ));
                 cargo_toml.push_str(&format!(
+                    "horus_core = {{ path = \"{}\" }}\n",
+                    horus_source.join("horus_core").display()
+                ));
+                cargo_toml.push_str(&format!(
                     "horus_library = {{ path = \"{}\" }}\n",
                     horus_source.join("horus_library").display()
+                ));
+                cargo_toml.push_str(&format!(
+                    "horus_macros = {{ path = \"{}\" }}\n",
+                    horus_source.join("horus_macros").display()
                 ));
             }
 
@@ -4563,7 +4630,13 @@ fn find_horus_source_dir() -> Result<PathBuf> {
         return Ok(cache_dir);
     }
 
-    bail!("HORUS not found. Please install HORUS or set HORUS_SOURCE environment variable.")
+    bail!(
+        "HORUS source not found. This can happen after running 'horus clean -a'.\n\n\
+         To fix this, either:\n\
+         1. Re-run the install script: ./install.sh (or curl the installer)\n\
+         2. Set HORUS_SOURCE environment variable to your HORUS source directory\n\
+         3. Clone HORUS to ~/softmata/horus or ~/horus"
+    )
 }
 
 #[derive(Debug, Clone, PartialEq)]

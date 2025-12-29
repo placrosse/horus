@@ -636,13 +636,28 @@ fn build_non_default_types(messages: &[RosMessage]) -> std::collections::HashSet
 }
 
 /// Sanitize a field name to be a valid Rust identifier
-/// Replaces dots, slashes, and other special characters with underscores
+/// Replaces dots, slashes, tildes, and other special characters with underscores
 fn sanitize_field_name(name: &str) -> String {
+    // Handle ROS private parameter prefix (~)
+    let name = if name.starts_with('~') {
+        format!("private{}", &name[1..])
+    } else {
+        name.to_string()
+    };
+
     let sanitized = name
         .replace('/', "_")
         .replace('.', "_")
         .replace('-', "_")
-        .replace(' ', "_");
+        .replace(' ', "_")
+        .replace('~', "_")
+        .replace(':', "_")
+        .replace('[', "_")
+        .replace(']', "_")
+        .replace('(', "_")
+        .replace(')', "_")
+        .replace('<', "_")
+        .replace('>', "_");
 
     // Ensure it starts with a letter or underscore (not a digit)
     if sanitized
@@ -2007,6 +2022,103 @@ pub fn parse_python_launch_file(path: &Path) -> HorusResult<LaunchFile> {
                 }
             }
 
+            // Extract parameters: parameters=[{...}, 'file.yaml', PathJoinSubstitution(...)]
+            if let Some(params_start) = node_block.find("parameters=") {
+                let rest = &node_block[params_start..];
+                if let Some(bracket_start) = rest.find('[') {
+                    let mut bracket_depth = 0;
+                    let mut bracket_end = bracket_start;
+                    for (i, ch) in rest[bracket_start..].char_indices() {
+                        if ch == '[' {
+                            bracket_depth += 1;
+                        }
+                        if ch == ']' {
+                            bracket_depth -= 1;
+                            if bracket_depth == 0 {
+                                bracket_end = bracket_start + i + 1;
+                                break;
+                            }
+                        }
+                    }
+                    let params_block = &rest[bracket_start..bracket_end];
+
+                    // Extract inline dict parameters: {'key': value, ...}
+                    let dict_regex = regex::Regex::new(r#"\{\s*([^}]+)\s*\}"#).ok();
+
+                    if let Some(dict_re) = dict_regex {
+                        for cap in dict_re.captures_iter(params_block) {
+                            if let Some(dict_content) = cap.get(1) {
+                                // Parse key-value pairs: 'key': value or "key": value
+                                let kv_regex =
+                                    regex::Regex::new(r#"['"]([^'"]+)['"]\s*:\s*([^,}\]]+)"#).ok();
+                                if let Some(kv_re) = kv_regex {
+                                    for kv_cap in kv_re.captures_iter(dict_content.as_str()) {
+                                        let key = kv_cap
+                                            .get(1)
+                                            .map(|m| m.as_str().trim().to_string())
+                                            .unwrap_or_default();
+                                        let value = kv_cap
+                                            .get(2)
+                                            .map(|m| {
+                                                m.as_str()
+                                                    .trim()
+                                                    .trim_matches('\'')
+                                                    .trim_matches('"')
+                                                    .to_string()
+                                            })
+                                            .unwrap_or_default();
+                                        if !key.is_empty() {
+                                            node.parameters.push((key, value));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Detect YAML config file references
+                    // Pattern 1: PathJoinSubstitution([...])
+                    if params_block.contains("PathJoinSubstitution")
+                        || params_block.contains("get_package_share_directory")
+                    {
+                        // Extract the path components
+                        let path_regex = regex::Regex::new(r#"(?:'|")([^'"]+\.ya?ml)(?:'|")"#).ok();
+                        if let Some(path_re) = path_regex {
+                            for path_cap in path_re.captures_iter(params_block) {
+                                if let Some(yaml_file) = path_cap.get(1) {
+                                    node.parameters.push((
+                                        "__config_file__".to_string(),
+                                        yaml_file.as_str().to_string(),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+
+                    // Pattern 2: Direct string reference 'config/params.yaml'
+                    let direct_yaml_regex =
+                        regex::Regex::new(r#"(?<!\w)['"]([^'"]*\.ya?ml)['"]"#).ok();
+                    if let Some(yaml_re) = direct_yaml_regex {
+                        for yaml_cap in yaml_re.captures_iter(params_block) {
+                            if let Some(yaml_file) = yaml_cap.get(1) {
+                                let file_name = yaml_file.as_str();
+                                // Avoid duplicates from PathJoinSubstitution
+                                if !node
+                                    .parameters
+                                    .iter()
+                                    .any(|(k, v)| k == "__config_file__" && v == file_name)
+                                {
+                                    node.parameters.push((
+                                        "__config_file__".to_string(),
+                                        file_name.to_string(),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Use executable as name if not specified
             if node.name.is_empty() && !node.executable.is_empty() {
                 node.name = node.executable.clone();
@@ -2389,6 +2501,149 @@ pub fn parse_yaml_launch_file(path: &Path) -> HorusResult<LaunchFile> {
     })
 }
 
+/// Parsed parameter from a ROS YAML config file
+#[derive(Debug, Clone)]
+pub struct ParsedParameter {
+    /// Parameter name (may include node prefix like "node_name.param")
+    pub name: String,
+    /// Parameter value as a string
+    pub value: String,
+    /// Inferred type (int, float, string, bool, list, dict)
+    pub param_type: String,
+    /// Original YAML path (e.g., "/**", "/my_node")
+    pub node_path: Option<String>,
+}
+
+/// Parse a ROS YAML config file (params.yaml)
+/// ROS2 format: /node_name:
+///                ros__parameters:
+///                  param1: value
+/// ROS1 format: param1: value (flat)
+pub fn parse_ros_yaml_config(path: &Path) -> HorusResult<Vec<ParsedParameter>> {
+    let content = fs::read_to_string(path).map_err(|e| HorusError::Io(e))?;
+    let mut params = Vec::new();
+
+    let mut current_node: Option<String> = None;
+    let mut in_ros_params = false;
+    let mut indent_stack: Vec<(usize, String)> = Vec::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let indent = line.len() - line.trim_start().len();
+
+        // Detect node namespace (ROS2 style: /node_name:)
+        if indent == 0 && trimmed.ends_with(':') {
+            let node = trimmed.trim_end_matches(':').to_string();
+            if node.starts_with('/') || node == "/**" {
+                current_node = Some(node);
+                in_ros_params = false;
+                indent_stack.clear();
+                continue;
+            }
+        }
+
+        // Detect ros__parameters section
+        if trimmed == "ros__parameters:" {
+            in_ros_params = true;
+            indent_stack.clear();
+            continue;
+        }
+
+        // Parse key: value pairs
+        if let Some(colon_pos) = trimmed.find(':') {
+            let key = trimmed[..colon_pos].trim();
+            let value_part = trimmed[colon_pos + 1..].trim();
+
+            // Skip nested sections (key with no value)
+            if value_part.is_empty() || value_part == "|" || value_part == ">" {
+                // Track indent for nested keys
+                while !indent_stack.is_empty() && indent_stack.last().unwrap().0 >= indent {
+                    indent_stack.pop();
+                }
+                indent_stack.push((indent, key.to_string()));
+                continue;
+            }
+
+            // Build full parameter name from indent stack
+            let full_name = if indent_stack.is_empty() {
+                key.to_string()
+            } else {
+                let prefix: Vec<&str> = indent_stack
+                    .iter()
+                    .filter(|(i, _)| *i < indent)
+                    .map(|(_, n)| n.as_str())
+                    .collect();
+                if prefix.is_empty() {
+                    key.to_string()
+                } else {
+                    format!("{}.{}", prefix.join("."), key)
+                }
+            };
+
+            // Infer type from value
+            let param_type = infer_yaml_param_type(value_part);
+
+            // Clean up value
+            let clean_value = value_part.trim_matches('\'').trim_matches('"').to_string();
+
+            params.push(ParsedParameter {
+                name: full_name,
+                value: clean_value,
+                param_type,
+                node_path: current_node.clone(),
+            });
+        }
+    }
+
+    Ok(params)
+}
+
+/// Infer the type of a YAML parameter value
+fn infer_yaml_param_type(value: &str) -> String {
+    let value = value.trim();
+
+    // Boolean
+    if value == "true" || value == "false" || value == "True" || value == "False" {
+        return "bool".to_string();
+    }
+
+    // List
+    if value.starts_with('[') {
+        return "list".to_string();
+    }
+
+    // Dict
+    if value.starts_with('{') {
+        return "dict".to_string();
+    }
+
+    // Quoted string
+    if (value.starts_with('\'') && value.ends_with('\''))
+        || (value.starts_with('"') && value.ends_with('"'))
+    {
+        return "string".to_string();
+    }
+
+    // Float (has decimal point or 'e'/'E')
+    if value.contains('.') || value.contains('e') || value.contains('E') {
+        if value.parse::<f64>().is_ok() {
+            return "float".to_string();
+        }
+    }
+
+    // Integer
+    if value.parse::<i64>().is_ok() {
+        return "int".to_string();
+    }
+
+    // Default to string
+    "string".to_string()
+}
+
 /// Parse a plugin.xml file (ROS1 nodelets, pluginlib plugins)
 pub fn parse_plugin_xml(path: &Path) -> HorusResult<Vec<PluginInfo>> {
     let content = fs::read_to_string(path).map_err(|e| HorusError::Io(e))?;
@@ -2473,12 +2728,12 @@ pub fn parse_plugin_xml(path: &Path) -> HorusResult<Vec<PluginInfo>> {
 /// Map CMake package name to Rust crate equivalent
 pub fn map_cmake_to_rust_crate(cmake_name: &str) -> ExternalDep {
     match cmake_name.to_lowercase().as_str() {
-        // Computer vision
+        // Computer vision - Made optional because OpenCV requires system installation
         "opencv" | "opencv4" | "cv_bridge" => ExternalDep {
             cmake_name: cmake_name.to_string(),
-            rust_crate: Some("opencv = \"0.88\"".to_string()),
-            cargo_feature: None,
-            notes: Some("OpenCV Rust bindings. Requires OpenCV 4.x installed.".to_string()),
+            rust_crate: Some("opencv = { version = \"0.88\", optional = true }".to_string()),
+            cargo_feature: Some("opencv".to_string()),
+            notes: Some("OpenCV Rust bindings (OPTIONAL). Enable with `cargo build --features opencv`. Requires OpenCV 4.x installed on system.".to_string()),
         },
 
         // Linear algebra / Math
@@ -2842,6 +3097,24 @@ serde = {{ version = "1.0", features = ["derive"] }}
             }
         }
         output.push('\n');
+
+        // Collect optional features from dependencies
+        let features: Vec<&str> = package
+            .external_deps
+            .iter()
+            .filter_map(|dep| dep.cargo_feature.as_deref())
+            .collect();
+
+        if !features.is_empty() {
+            output.push_str("[features]\n");
+            output.push_str("default = []\n");
+            for feature in &features {
+                output.push_str(&format!("{} = [\"dep:{}\"]\n", feature, feature));
+            }
+            output.push_str("\n# To enable optional features:\n");
+            output.push_str("# cargo build --features opencv\n");
+            output.push('\n');
+        }
     }
 
     output
@@ -5805,6 +6078,13 @@ fn topic_to_field_name(topic: &str) -> String {
         .to_lowercase()
 }
 
+/// Convert ROS topic name to HORUS topic name
+/// ROS uses `/` separator: `/robot/odom`, `/cmd_vel`
+/// HORUS uses `.` separator: `robot.odom`, `cmd_vel`
+fn ros_topic_to_horus(topic: &str) -> String {
+    topic.trim_start_matches('/').replace('/', ".")
+}
+
 /// Convert C++ message type to Rust type
 fn cpp_msg_to_rust(cpp_type: &str) -> String {
     // Handle namespaced types like sensor_msgs::msg::LaserScan
@@ -5970,6 +6250,1305 @@ fn cpp_msg_to_rust(cpp_type: &str) -> String {
     }
 }
 
+// =============================================================================
+// PHASE 2: SMARTER CODE GENERATION
+// =============================================================================
+
+/// Detected communication pattern for smarter code generation
+#[derive(Debug, Clone, PartialEq)]
+pub enum DetectedPattern {
+    /// Simple relay: 1 subscriber → 1 publisher (pass-through with optional transform)
+    SimpleRelay {
+        input_topic: String,
+        input_type: String,
+        output_topic: String,
+        output_type: String,
+    },
+    /// Transform: geometry message transformation (TF, pose, etc.)
+    Transform {
+        input_type: String,
+        output_type: String,
+        frame_ids: Vec<String>,
+    },
+    /// Aggregation: multiple inputs → single output
+    Aggregation {
+        input_count: usize,
+        output_topic: String,
+    },
+    /// Safety monitor: sensor + velocity → emergency stop
+    SafetyMonitor {
+        sensor_topics: Vec<String>,
+        velocity_topic: String,
+    },
+    /// State machine: multiple states/modes
+    StateMachine { states: Vec<String> },
+    /// Sensor driver: hardware interface
+    SensorDriver { sensor_type: String },
+    /// Controller: control loop pattern
+    Controller {
+        setpoint_topic: String,
+        feedback_topic: String,
+        output_topic: String,
+    },
+    /// Publisher only: no subscribers, just publishes
+    PublisherOnly,
+    /// Subscriber only: no publishers, just receives
+    SubscriberOnly,
+    /// Generic: no clear pattern detected
+    Generic,
+}
+
+/// Pattern analysis result with confidence
+#[derive(Debug, Clone)]
+pub struct PatternAnalysis {
+    pub pattern: DetectedPattern,
+    pub confidence: f32, // 0.0 - 1.0
+    pub complexity: NodeComplexity,
+    pub suggested_impl: Option<String>,
+    pub risks: Vec<String>, // Potential issues to be aware of
+}
+
+/// Node complexity level
+#[derive(Debug, Clone, PartialEq)]
+pub enum NodeComplexity {
+    Simple,  // < 3 topics, simple logic
+    Medium,  // 3-6 topics, moderate logic
+    Complex, // > 6 topics or complex patterns
+}
+
+// ============================================================================
+// PHASE 3.3: PATTERN LIBRARY INTEGRATION
+// Maps detected ROS patterns to HORUS built-in nodes for smarter code generation
+// ============================================================================
+
+/// HORUS built-in node recommendation
+#[derive(Debug, Clone)]
+pub struct HorusBuiltInRecommendation {
+    /// Name of the HORUS built-in node
+    pub node_name: String,
+    /// Module path in horus_library
+    pub module_path: String,
+    /// Confidence that this built-in is a good match (0.0 - 1.0)
+    pub match_confidence: f32,
+    /// Reason for the recommendation
+    pub reason: String,
+    /// Usage example
+    pub usage_example: String,
+    /// Features to enable in Cargo.toml
+    pub required_features: Vec<String>,
+}
+
+/// Category of HORUS built-in nodes
+#[derive(Debug, Clone, PartialEq)]
+pub enum BuiltInCategory {
+    Sensors,
+    Motors,
+    Control,
+    Navigation,
+    Vision,
+    Communication,
+    Algorithms,
+}
+
+/// Get HORUS built-in node recommendations based on detected patterns and node info
+fn get_builtin_node_recommendations(
+    patterns: &[PatternAnalysis],
+    info: &ParsedNodeInfo,
+) -> Vec<HorusBuiltInRecommendation> {
+    let mut recommendations = Vec::new();
+
+    // Check message types for sensor patterns
+    for sub in &info.subscribers {
+        let msg_lower = sub.msg_type.to_lowercase();
+
+        // Camera detection
+        if msg_lower.contains("image") || msg_lower.contains("camera") {
+            recommendations.push(HorusBuiltInRecommendation {
+                node_name: "CameraNode".to_string(),
+                module_path: "horus_library::nodes::camera".to_string(),
+                match_confidence: 0.85,
+                reason: format!("Subscribes to Image type on topic '{}'", sub.topic),
+                usage_example: r#"use horus_library::nodes::camera::{CameraNode, CameraConfig};
+let camera = CameraNode::new(CameraConfig::default());"#
+                    .to_string(),
+                required_features: vec!["camera".to_string()],
+            });
+        }
+
+        // LiDAR detection
+        if msg_lower.contains("laserscan") || msg_lower.contains("pointcloud") {
+            recommendations.push(HorusBuiltInRecommendation {
+                node_name: "LidarNode".to_string(),
+                module_path: "horus_library::nodes::lidar".to_string(),
+                match_confidence: 0.90,
+                reason: format!(
+                    "Subscribes to LaserScan/PointCloud type on topic '{}'",
+                    sub.topic
+                ),
+                usage_example: r#"use horus_library::nodes::lidar::{LidarNode, LidarConfig};
+let lidar = LidarNode::new(LidarConfig::default());"#
+                    .to_string(),
+                required_features: vec!["lidar".to_string()],
+            });
+        }
+
+        // IMU detection
+        if msg_lower.contains("imu") || msg_lower.contains("inertial") {
+            recommendations.push(HorusBuiltInRecommendation {
+                node_name: "ImuNode".to_string(),
+                module_path: "horus_library::nodes::imu".to_string(),
+                match_confidence: 0.90,
+                reason: format!("Subscribes to IMU type on topic '{}'", sub.topic),
+                usage_example: r#"use horus_library::nodes::imu::{ImuNode, ImuConfig};
+let imu = ImuNode::new(ImuConfig::default());"#
+                    .to_string(),
+                required_features: vec!["imu".to_string()],
+            });
+        }
+
+        // GPS detection
+        if msg_lower.contains("navsat") || msg_lower.contains("gps") || msg_lower.contains("fix") {
+            recommendations.push(HorusBuiltInRecommendation {
+                node_name: "GpsNode".to_string(),
+                module_path: "horus_library::nodes::gps".to_string(),
+                match_confidence: 0.85,
+                reason: format!("Subscribes to GPS/NavSat type on topic '{}'", sub.topic),
+                usage_example: r#"use horus_library::nodes::gps::{GpsNode, GpsConfig};
+let gps = GpsNode::new(GpsConfig::default());"#
+                    .to_string(),
+                required_features: vec!["gps".to_string()],
+            });
+        }
+
+        // Odometry detection
+        if msg_lower.contains("odometry") || msg_lower.contains("odom") {
+            recommendations.push(HorusBuiltInRecommendation {
+                node_name: "OdometryNode".to_string(),
+                module_path: "horus_library::nodes::odometry".to_string(),
+                match_confidence: 0.80,
+                reason: format!("Works with Odometry type on topic '{}'", sub.topic),
+                usage_example:
+                    r#"use horus_library::nodes::odometry::{OdometryNode, OdometryConfig};
+let odom = OdometryNode::new(OdometryConfig::default());"#
+                        .to_string(),
+                required_features: vec!["odometry".to_string()],
+            });
+        }
+    }
+
+    // Check publisher types
+    for pub_ in &info.publishers {
+        let msg_lower = pub_.msg_type.to_lowercase();
+
+        // Motor/actuator detection
+        if msg_lower.contains("twist") || msg_lower.contains("velocity") {
+            // Check if this looks like a differential drive
+            if info.subscribers.iter().any(|s| {
+                let t = s.msg_type.to_lowercase();
+                t.contains("laserscan") || t.contains("odometry")
+            }) {
+                recommendations.push(HorusBuiltInRecommendation {
+                    node_name: "DifferentialDriveNode".to_string(),
+                    module_path: "horus_library::nodes::differential_drive".to_string(),
+                    match_confidence: 0.85,
+                    reason: "Publishes Twist commands with sensor input - differential drive pattern".to_string(),
+                    usage_example: r#"use horus_library::nodes::differential_drive::{DifferentialDriveNode, DriveConfig};
+let drive = DifferentialDriveNode::new(DriveConfig {
+    wheel_separation: 0.5,
+    wheel_radius: 0.1,
+    ..Default::default()
+});"#.to_string(),
+                    required_features: vec!["differential_drive".to_string()],
+                });
+            }
+        }
+
+        // Joint command detection
+        if msg_lower.contains("jointstate") || msg_lower.contains("jointtrajectory") {
+            recommendations.push(HorusBuiltInRecommendation {
+                node_name: "ServoControllerNode".to_string(),
+                module_path: "horus_library::nodes::servo_controller".to_string(),
+                match_confidence: 0.80,
+                reason: "Publishes joint commands - servo controller pattern".to_string(),
+                usage_example: r#"use horus_library::nodes::servo_controller::{ServoControllerNode, ServoConfig};
+let servo = ServoControllerNode::new(ServoConfig::default());"#.to_string(),
+                required_features: vec!["servo".to_string()],
+            });
+        }
+    }
+
+    // Check detected patterns for algorithm recommendations
+    for pattern in patterns {
+        match &pattern.pattern {
+            DetectedPattern::SafetyMonitor { .. } => {
+                recommendations.push(HorusBuiltInRecommendation {
+                    node_name: "SafetyMonitorNode".to_string(),
+                    module_path: "horus_library::nodes::safety_monitor".to_string(),
+                    match_confidence: pattern.confidence,
+                    reason: "Safety monitor pattern detected - emergency stop logic".to_string(),
+                    usage_example: r#"use horus_library::nodes::safety_monitor::{SafetyMonitorNode, SafetyConfig};
+let safety = SafetyMonitorNode::new(SafetyConfig {
+    min_safe_distance: 0.5,
+    emergency_stop_enabled: true,
+    ..Default::default()
+});"#.to_string(),
+                    required_features: vec!["safety".to_string()],
+                });
+            }
+            DetectedPattern::Controller { .. } => {
+                recommendations.push(HorusBuiltInRecommendation {
+                    node_name: "PidControllerNode".to_string(),
+                    module_path: "horus_library::nodes::pid_controller".to_string(),
+                    match_confidence: pattern.confidence,
+                    reason: "Controller pattern detected - PID control loop".to_string(),
+                    usage_example:
+                        r#"use horus_library::nodes::pid_controller::{PidControllerNode, PidConfig};
+let pid = PidControllerNode::new(PidConfig {
+    kp: 1.0,
+    ki: 0.1,
+    kd: 0.01,
+    ..Default::default()
+});"#
+                            .to_string(),
+                    required_features: vec!["pid".to_string()],
+                });
+            }
+            _ => {}
+        }
+    }
+
+    // Check for algorithm patterns based on node name and context
+    let node_name_lower = info.class_name.to_lowercase();
+
+    if node_name_lower.contains("kalman")
+        || node_name_lower.contains("ekf")
+        || node_name_lower.contains("ukf")
+    {
+        recommendations.push(HorusBuiltInRecommendation {
+            node_name: "KalmanFilterAlgorithm".to_string(),
+            module_path: "horus_library::algorithms::kalman_filter".to_string(),
+            match_confidence: 0.90,
+            reason: "Node name suggests Kalman filter state estimation".to_string(),
+            usage_example:
+                r#"use horus_library::algorithms::kalman_filter::{KalmanFilter, KalmanConfig};
+let kf = KalmanFilter::new(state_dim, measurement_dim);"#
+                    .to_string(),
+            required_features: vec!["algorithms".to_string()],
+        });
+    }
+
+    if node_name_lower.contains("astar")
+        || node_name_lower.contains("path")
+        || node_name_lower.contains("planner")
+    {
+        recommendations.push(HorusBuiltInRecommendation {
+            node_name: "AStarPathPlanner".to_string(),
+            module_path: "horus_library::algorithms::astar".to_string(),
+            match_confidence: 0.80,
+            reason: "Node name suggests path planning functionality".to_string(),
+            usage_example: r#"use horus_library::algorithms::astar::{AStar, PlannerConfig};
+let planner = AStar::new(PlannerConfig::default());"#
+                .to_string(),
+            required_features: vec!["algorithms".to_string()],
+        });
+    }
+
+    if node_name_lower.contains("rrt") {
+        recommendations.push(HorusBuiltInRecommendation {
+            node_name: "RRTPathPlanner".to_string(),
+            module_path: "horus_library::algorithms::rrt".to_string(),
+            match_confidence: 0.90,
+            reason: "Node name suggests RRT-based motion planning".to_string(),
+            usage_example: r#"use horus_library::algorithms::rrt::{RRT, RRTConfig};
+let rrt = RRT::new(RRTConfig::default());"#
+                .to_string(),
+            required_features: vec!["algorithms".to_string()],
+        });
+    }
+
+    if node_name_lower.contains("pursuit") || node_name_lower.contains("follower") {
+        recommendations.push(HorusBuiltInRecommendation {
+            node_name: "PurePursuitController".to_string(),
+            module_path: "horus_library::algorithms::pure_pursuit".to_string(),
+            match_confidence: 0.85,
+            reason: "Node name suggests path following controller".to_string(),
+            usage_example:
+                r#"use horus_library::algorithms::pure_pursuit::{PurePursuit, PursuitConfig};
+let pursuit = PurePursuit::new(PursuitConfig {
+    lookahead_distance: 1.0,
+    ..Default::default()
+});"#
+                    .to_string(),
+            required_features: vec!["algorithms".to_string()],
+        });
+    }
+
+    if node_name_lower.contains("fusion") || node_name_lower.contains("sensor_fusion") {
+        recommendations.push(HorusBuiltInRecommendation {
+            node_name: "SensorFusionNode".to_string(),
+            module_path: "horus_library::algorithms::sensor_fusion".to_string(),
+            match_confidence: 0.85,
+            reason: "Node name suggests multi-sensor fusion".to_string(),
+            usage_example:
+                r#"use horus_library::algorithms::sensor_fusion::{SensorFusion, FusionConfig};
+let fusion = SensorFusion::new(FusionConfig::default());"#
+                    .to_string(),
+            required_features: vec!["algorithms".to_string()],
+        });
+    }
+
+    // Remove duplicates by node_name and sort by confidence
+    recommendations.sort_by(|a, b| {
+        b.match_confidence
+            .partial_cmp(&a.match_confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    recommendations.dedup_by(|a, b| a.node_name == b.node_name);
+
+    recommendations
+}
+
+/// Format HORUS built-in recommendations as code comments
+fn format_builtin_recommendations(recommendations: &[HorusBuiltInRecommendation]) -> String {
+    if recommendations.is_empty() {
+        return String::new();
+    }
+
+    let mut output = String::from(
+        "//!\n//! ═══════════════════════════════════════════════════════════════════════════\n",
+    );
+    output.push_str("//! 🔧 HORUS BUILT-IN NODE RECOMMENDATIONS\n");
+    output.push_str(
+        "//! ═══════════════════════════════════════════════════════════════════════════\n",
+    );
+    output.push_str("//!\n");
+
+    for (i, rec) in recommendations.iter().take(3).enumerate() {
+        let confidence_pct = (rec.match_confidence * 100.0) as u32;
+        output.push_str(&format!(
+            "//! {}. {} ({}% match)\n",
+            i + 1,
+            rec.node_name,
+            confidence_pct
+        ));
+        output.push_str(&format!("//!    Reason: {}\n", rec.reason));
+        output.push_str(&format!("//!    Module: {}\n", rec.module_path));
+        if !rec.required_features.is_empty() {
+            output.push_str(&format!("//!    Features: {:?}\n", rec.required_features));
+        }
+        output.push_str("//!\n");
+    }
+
+    if !recommendations.is_empty() {
+        output.push_str("//!    Example usage:\n");
+        for line in recommendations[0].usage_example.lines() {
+            output.push_str(&format!("//!    {}\n", line));
+        }
+        output.push_str("//!\n");
+    }
+
+    output
+}
+
+/// Detect patterns from parsed node info
+fn detect_patterns(info: &ParsedNodeInfo) -> Vec<PatternAnalysis> {
+    let mut patterns = Vec::new();
+
+    let num_subs = info.subscribers.len();
+    let num_pubs = info.publishers.len();
+    let has_timers = !info.timers.is_empty();
+
+    // Calculate complexity
+    let total_topics = num_subs + num_pubs;
+    let complexity = if total_topics <= 2 && !has_timers {
+        NodeComplexity::Simple
+    } else if total_topics <= 6 {
+        NodeComplexity::Medium
+    } else {
+        NodeComplexity::Complex
+    };
+
+    // Pattern 1: Simple Relay (1 sub → 1 pub, same or compatible types)
+    if num_subs == 1 && num_pubs == 1 {
+        let sub = &info.subscribers[0];
+        let pub_ = &info.publishers[0];
+        let sub_type = cpp_msg_to_rust(&sub.msg_type);
+        let pub_type = cpp_msg_to_rust(&pub_.msg_type);
+
+        let confidence = if sub_type == pub_type {
+            0.95 // Same type = very likely relay
+        } else if is_compatible_transform(&sub_type, &pub_type) {
+            0.85 // Compatible types = likely transform
+        } else {
+            0.5 // Different types = possible processing
+        };
+
+        let risks = if sub_type != pub_type {
+            vec!["Type conversion may lose data".to_string()]
+        } else {
+            vec![]
+        };
+        patterns.push(PatternAnalysis {
+            pattern: DetectedPattern::SimpleRelay {
+                input_topic: sub.topic.clone(),
+                input_type: sub_type.clone(),
+                output_topic: pub_.topic.clone(),
+                output_type: pub_type.clone(),
+            },
+            confidence,
+            complexity: NodeComplexity::Simple,
+            suggested_impl: Some(generate_relay_impl(
+                &sub.field_name,
+                &pub_.field_name,
+                &sub_type,
+                &pub_type,
+            )),
+            risks,
+        });
+    }
+
+    // Pattern 2: Transform (geometry messages with frame_id)
+    let geometry_types = [
+        "Pose",
+        "PoseStamped",
+        "Transform",
+        "TransformStamped",
+        "Point",
+        "Vector3",
+        "Quaternion",
+        "Twist",
+        "TwistStamped",
+    ];
+    let has_geometry_sub = info.subscribers.iter().any(|s| {
+        let rust_type = cpp_msg_to_rust(&s.msg_type);
+        geometry_types.iter().any(|t| rust_type.contains(t))
+    });
+    let has_geometry_pub = info.publishers.iter().any(|p| {
+        let rust_type = cpp_msg_to_rust(&p.msg_type);
+        geometry_types.iter().any(|t| rust_type.contains(t))
+    });
+    let has_tf = !info.tf_broadcasters.is_empty() || !info.tf_listeners.is_empty();
+
+    if has_geometry_sub && (has_geometry_pub || has_tf) {
+        patterns.push(PatternAnalysis {
+            pattern: DetectedPattern::Transform {
+                input_type: info
+                    .subscribers
+                    .first()
+                    .map(|s| cpp_msg_to_rust(&s.msg_type))
+                    .unwrap_or_default(),
+                output_type: info
+                    .publishers
+                    .first()
+                    .map(|p| cpp_msg_to_rust(&p.msg_type))
+                    .unwrap_or_default(),
+                frame_ids: vec![], // Would need to parse from source
+            },
+            confidence: 0.75,
+            complexity: complexity.clone(),
+            suggested_impl: None,
+            risks: vec![
+                "Frame ID management required".to_string(),
+                "TF lookup may fail if transforms unavailable".to_string(),
+            ],
+        });
+    }
+
+    // Pattern 3: Aggregation (multiple subs → single pub)
+    if num_subs > 1 && num_pubs == 1 {
+        patterns.push(PatternAnalysis {
+            pattern: DetectedPattern::Aggregation {
+                input_count: num_subs,
+                output_topic: info.publishers[0].topic.clone(),
+            },
+            confidence: 0.70,
+            complexity: complexity.clone(),
+            suggested_impl: Some(generate_aggregation_impl(info)),
+            risks: vec![
+                format!("Synchronizing {} inputs may require buffering", num_subs),
+                "Message ordering may vary by arrival time".to_string(),
+            ],
+        });
+    }
+
+    // Pattern 4: Safety Monitor (LaserScan/sensor + velocity output)
+    let has_sensor = info.subscribers.iter().any(|s| {
+        let t = s.msg_type.to_lowercase();
+        t.contains("laserscan")
+            || t.contains("pointcloud")
+            || t.contains("range")
+            || t.contains("imu")
+    });
+    let has_velocity = info.publishers.iter().any(|p| {
+        let t = p.msg_type.to_lowercase();
+        t.contains("twist") || t.contains("velocity") || t.contains("cmd_vel")
+    });
+
+    if has_sensor && has_velocity {
+        let sensor_topics: Vec<String> = info
+            .subscribers
+            .iter()
+            .filter(|s| {
+                let t = s.msg_type.to_lowercase();
+                t.contains("laserscan") || t.contains("pointcloud") || t.contains("range")
+            })
+            .map(|s| s.topic.clone())
+            .collect();
+        let vel_topic = info
+            .publishers
+            .iter()
+            .find(|p| p.msg_type.to_lowercase().contains("twist"))
+            .map(|p| p.topic.clone())
+            .unwrap_or_default();
+
+        patterns.push(PatternAnalysis {
+            pattern: DetectedPattern::SafetyMonitor {
+                sensor_topics,
+                velocity_topic: vel_topic,
+            },
+            confidence: 0.80,
+            complexity: NodeComplexity::Medium,
+            suggested_impl: Some(generate_safety_monitor_impl(info)),
+            risks: vec![
+                "SAFETY CRITICAL: Verify emergency stop logic thoroughly".to_string(),
+                "Sensor failure mode should trigger safe behavior".to_string(),
+                "Latency requirements must be met for safe operation".to_string(),
+            ],
+        });
+    }
+
+    // Pattern 5: Controller (setpoint + feedback → command)
+    let has_setpoint = info.subscribers.iter().any(|s| {
+        let t = s.topic.to_lowercase();
+        t.contains("setpoint")
+            || t.contains("goal")
+            || t.contains("target")
+            || t.contains("reference")
+    });
+    let has_feedback = info.subscribers.iter().any(|s| {
+        let t = s.topic.to_lowercase();
+        t.contains("state")
+            || t.contains("feedback")
+            || t.contains("odom")
+            || t.contains("joint_state")
+    });
+    let has_command = info.publishers.iter().any(|p| {
+        let t = p.topic.to_lowercase();
+        t.contains("cmd") || t.contains("command") || t.contains("effort") || t.contains("control")
+    });
+
+    if has_setpoint && has_feedback && has_command {
+        patterns.push(PatternAnalysis {
+            pattern: DetectedPattern::Controller {
+                setpoint_topic: info
+                    .subscribers
+                    .iter()
+                    .find(|s| {
+                        s.topic.to_lowercase().contains("setpoint")
+                            || s.topic.to_lowercase().contains("goal")
+                    })
+                    .map(|s| s.topic.clone())
+                    .unwrap_or_default(),
+                feedback_topic: info
+                    .subscribers
+                    .iter()
+                    .find(|s| {
+                        s.topic.to_lowercase().contains("state")
+                            || s.topic.to_lowercase().contains("feedback")
+                    })
+                    .map(|s| s.topic.clone())
+                    .unwrap_or_default(),
+                output_topic: info
+                    .publishers
+                    .iter()
+                    .find(|p| p.topic.to_lowercase().contains("cmd"))
+                    .map(|p| p.topic.clone())
+                    .unwrap_or_default(),
+            },
+            confidence: 0.85,
+            complexity: NodeComplexity::Medium,
+            suggested_impl: Some(generate_controller_impl(info)),
+            risks: vec![
+                "Control loop timing is critical - verify tick rate".to_string(),
+                "Gain parameters may need tuning for target hardware".to_string(),
+            ],
+        });
+    }
+
+    // Pattern 6: State Machine
+    if info.state_machine.is_some() || info.is_lifecycle {
+        patterns.push(PatternAnalysis {
+            pattern: DetectedPattern::StateMachine {
+                states: vec!["Idle".into(), "Active".into(), "Error".into()],
+            },
+            confidence: 0.90,
+            complexity: NodeComplexity::Medium,
+            suggested_impl: Some(generate_state_machine_impl()),
+            risks: vec![
+                "State transitions should be validated".to_string(),
+                "Error state handling needs explicit recovery logic".to_string(),
+            ],
+        });
+    }
+
+    // Pattern 7: Sensor Driver
+    if !info.sensor_drivers.is_empty() || !info.hardware_interfaces.is_empty() {
+        let sensor_type = info
+            .sensor_drivers
+            .first()
+            .map(|d| d.sensor_type.clone())
+            .unwrap_or_else(|| "generic".to_string());
+        patterns.push(PatternAnalysis {
+            pattern: DetectedPattern::SensorDriver {
+                sensor_type: sensor_type.clone(),
+            },
+            confidence: 0.85,
+            complexity: NodeComplexity::Medium,
+            suggested_impl: None,
+            risks: vec![
+                format!(
+                    "Hardware-specific: {} driver may need platform adaptation",
+                    sensor_type
+                ),
+                "I/O permissions may be required (udev rules, etc.)".to_string(),
+            ],
+        });
+    }
+
+    // Pattern 8: Publisher Only
+    if num_subs == 0 && num_pubs > 0 {
+        patterns.push(PatternAnalysis {
+            pattern: DetectedPattern::PublisherOnly,
+            confidence: 0.95,
+            complexity: complexity.clone(),
+            suggested_impl: Some(generate_publisher_only_impl(info)),
+            risks: vec!["No input validation - ensure data source is reliable".to_string()],
+        });
+    }
+
+    // Pattern 9: Subscriber Only
+    if num_subs > 0 && num_pubs == 0 {
+        patterns.push(PatternAnalysis {
+            pattern: DetectedPattern::SubscriberOnly,
+            confidence: 0.95,
+            complexity: complexity.clone(),
+            suggested_impl: Some(generate_subscriber_only_impl(info)),
+            risks: vec!["Data sink only - verify side effects are intended".to_string()],
+        });
+    }
+
+    // If no patterns detected, add generic
+    if patterns.is_empty() {
+        patterns.push(PatternAnalysis {
+            pattern: DetectedPattern::Generic,
+            confidence: 1.0,
+            complexity,
+            suggested_impl: None,
+            risks: vec!["No clear pattern detected - manual review recommended".to_string()],
+        });
+    }
+
+    // Sort by confidence
+    patterns.sort_by(|a, b| {
+        b.confidence
+            .partial_cmp(&a.confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    patterns
+}
+
+/// Check if two types are compatible for transformation
+fn is_compatible_transform(from_type: &str, to_type: &str) -> bool {
+    // Same base type is compatible
+    if from_type == to_type {
+        return true;
+    }
+
+    // Stamped ↔ non-stamped versions
+    let unstamped_from = from_type.replace("Stamped", "");
+    let unstamped_to = to_type.replace("Stamped", "");
+    if unstamped_from == unstamped_to {
+        return true;
+    }
+
+    // Common compatible pairs
+    let compatible_pairs = [
+        ("Pose", "Transform"),
+        ("Point", "Vector3"),
+        ("Twist", "Velocity"),
+        ("LaserScan", "PointCloud2"),
+        ("Image", "CompressedImage"),
+    ];
+
+    for (a, b) in &compatible_pairs {
+        if (from_type.contains(a) && to_type.contains(b))
+            || (from_type.contains(b) && to_type.contains(a))
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Generate implementation for simple relay pattern
+fn generate_relay_impl(sub_field: &str, pub_field: &str, sub_type: &str, pub_type: &str) -> String {
+    if sub_type == pub_type {
+        // Pass-through relay
+        format!(
+            r#"        // Simple relay: forward {} → {}
+        if let Some(msg) = self.{}.recv(&mut ctx) {{
+            self.messages_processed += 1;
+            self.{}.send(msg, &mut ctx);
+        }}"#,
+            sub_field, pub_field, sub_field, pub_field
+        )
+    } else {
+        // Transform relay
+        format!(
+            r#"        // Transform relay: {} ({}) → {} ({})
+        if let Some(msg) = self.{}.recv(&mut ctx) {{
+            self.messages_processed += 1;
+            let output = self.transform(msg);
+            self.{}.send(output, &mut ctx);
+        }}"#,
+            sub_field, sub_type, pub_field, pub_type, sub_field, pub_field
+        )
+    }
+}
+
+/// Generate implementation for aggregation pattern
+fn generate_aggregation_impl(info: &ParsedNodeInfo) -> String {
+    let mut code = String::from("        // Aggregation: collect from multiple inputs\n");
+    code.push_str("        let mut updated = false;\n\n");
+
+    for sub in &info.subscribers {
+        code.push_str(&format!(
+            "        if let Some(msg) = self.{}.recv(&mut ctx) {{\n",
+            sub.field_name
+        ));
+        code.push_str(&format!(
+            "            self.last_{} = Some(msg);\n",
+            sub.field_name
+        ));
+        code.push_str("            updated = true;\n");
+        code.push_str("        }\n\n");
+    }
+
+    if let Some(pub_) = info.publishers.first() {
+        code.push_str("        if updated {\n");
+        code.push_str("            self.messages_processed += 1;\n");
+        code.push_str("            let output = self.aggregate();\n");
+        code.push_str(&format!(
+            "            self.{}.send(output, &mut ctx);\n",
+            pub_.field_name
+        ));
+        code.push_str("        }");
+    }
+
+    code
+}
+
+/// Generate implementation for safety monitor pattern
+fn generate_safety_monitor_impl(info: &ParsedNodeInfo) -> String {
+    let mut code =
+        String::from("        // Safety monitor: check obstacles and control velocity\n");
+    code.push_str("        let mut obstacle_detected = false;\n");
+    code.push_str("        let mut min_distance = f64::MAX;\n\n");
+
+    // Check sensor inputs
+    for sub in &info.subscribers {
+        let t = sub.msg_type.to_lowercase();
+        if t.contains("laserscan") {
+            code.push_str(&format!(
+                r#"        if let Some(scan) = self.{}.recv(&mut ctx) {{
+            // Check for obstacles in LaserScan
+            for range in &scan.ranges {{
+                if *range < self.safety_distance && *range > scan.range_min {{
+                    obstacle_detected = true;
+                    min_distance = min_distance.min(*range as f64);
+                }}
+            }}
+        }}
+
+"#,
+                sub.field_name
+            ));
+        } else if t.contains("pointcloud") {
+            code.push_str(&format!(
+                r#"        if let Some(_cloud) = self.{}.recv(&mut ctx) {{
+            // Check for obstacles in PointCloud
+            // TODO: Implement point cloud obstacle detection
+            // obstacle_detected = check_point_cloud(&cloud, self.safety_distance);
+        }}
+
+"#,
+                sub.field_name
+            ));
+        }
+    }
+
+    // Output velocity control
+    for pub_ in &info.publishers {
+        let t = pub_.msg_type.to_lowercase();
+        if t.contains("twist") {
+            code.push_str(&format!(
+                r#"        // Generate velocity command
+        let cmd = if obstacle_detected {{
+            self.emergency_stop_count += 1;
+            // Emergency stop or slow down
+            Twist {{
+                linear: Vector3 {{ x: 0.0, y: 0.0, z: 0.0 }},
+                angular: Vector3 {{ x: 0.0, y: 0.0, z: 0.0 }},
+            }}
+        }} else {{
+            // Normal operation - use desired velocity
+            self.desired_velocity.clone()
+        }};
+
+        self.messages_processed += 1;
+        self.{}.send(cmd, &mut ctx);"#,
+                pub_.field_name
+            ));
+            break;
+        }
+    }
+
+    code
+}
+
+/// Generate implementation for controller pattern
+fn generate_controller_impl(info: &ParsedNodeInfo) -> String {
+    format!(
+        r#"        // Controller: PID or similar control loop
+
+        // Read setpoint
+        if let Some(setpoint) = self.setpoint.recv(&mut ctx) {{
+            self.current_setpoint = Some(setpoint);
+        }}
+
+        // Read feedback
+        if let Some(feedback) = self.feedback.recv(&mut ctx) {{
+            self.current_feedback = Some(feedback);
+        }}
+
+        // Compute control output if we have both setpoint and feedback
+        if let (Some(ref setpoint), Some(ref feedback)) = (&self.current_setpoint, &self.current_feedback) {{
+            let error = self.compute_error(setpoint, feedback);
+            let output = self.controller.update(error, self.dt);
+
+            self.messages_processed += 1;
+            self.command.send(output, &mut ctx);
+        }}"#
+    )
+}
+
+/// Generate implementation for state machine pattern
+fn generate_state_machine_impl() -> String {
+    r#"        // State machine: handle state transitions
+        match self.state {
+            NodeState::Idle => {
+                // Wait for activation command
+                if self.should_activate() {
+                    self.state = NodeState::Active;
+                    self.on_activate();
+                }
+            }
+            NodeState::Active => {
+                // Normal operation
+                self.process_active_state(&mut ctx);
+
+                if self.should_deactivate() {
+                    self.state = NodeState::Idle;
+                    self.on_deactivate();
+                } else if self.has_error() {
+                    self.state = NodeState::Error;
+                    self.on_error();
+                }
+            }
+            NodeState::Error => {
+                // Error recovery
+                if self.can_recover() {
+                    self.state = NodeState::Idle;
+                    self.on_recover();
+                }
+            }
+        }
+        self.messages_processed += 1;"#
+        .to_string()
+}
+
+/// Generate implementation for publisher-only pattern
+fn generate_publisher_only_impl(info: &ParsedNodeInfo) -> String {
+    let mut code = String::from("        // Publisher-only node: generate and publish data\n");
+    code.push_str("        self.tick_count += 1;\n\n");
+
+    for pub_ in &info.publishers {
+        let rust_type = cpp_msg_to_rust(&pub_.msg_type);
+        code.push_str(&format!(
+            r#"        // Publish to {}
+        let msg = self.generate_{}();
+        self.{}.send(msg, &mut ctx);
+
+"#,
+            pub_.topic, pub_.field_name, pub_.field_name
+        ));
+    }
+
+    code.push_str("        self.messages_processed += 1;");
+    code
+}
+
+/// Generate implementation for subscriber-only pattern
+fn generate_subscriber_only_impl(info: &ParsedNodeInfo) -> String {
+    let mut code = String::from("        // Subscriber-only node: receive and process data\n");
+
+    for sub in &info.subscribers {
+        code.push_str(&format!(
+            r#"        if let Some(msg) = self.{}.recv(&mut ctx) {{
+            self.process_{}(msg);
+            self.messages_processed += 1;
+        }}
+
+"#,
+            sub.field_name, sub.field_name
+        ));
+    }
+
+    code
+}
+
+/// Generate statistics fields for the node struct
+fn generate_statistics_fields() -> String {
+    r#"    // === Node Statistics ===
+    /// Total messages processed
+    pub messages_processed: u64,
+    /// Last message timestamp (nanoseconds)
+    pub last_message_time_ns: u64,
+    /// Error count
+    pub error_count: u64,
+    /// Tick count
+    pub tick_count: u64,
+"#
+    .to_string()
+}
+
+/// Generate statistics initialization
+fn generate_statistics_init() -> String {
+    r#"            messages_processed: 0,
+            last_message_time_ns: 0,
+            error_count: 0,
+            tick_count: 0,
+"#
+    .to_string()
+}
+
+/// Generate builder struct for a node
+fn generate_builder_struct(struct_name: &str, info: &ParsedNodeInfo) -> String {
+    let mut builder_fields = String::new();
+    let mut builder_methods = String::new();
+    let mut build_fields = String::new();
+
+    // Add topic prefix option
+    builder_fields.push_str("    topic_prefix: Option<String>,\n");
+    builder_methods.push_str(&format!(
+        r#"    /// Set topic prefix for all topics
+    pub fn topic_prefix(mut self, prefix: impl Into<String>) -> Self {{
+        self.topic_prefix = Some(prefix.into());
+        self
+    }}
+
+"#
+    ));
+
+    // Add parameter overrides
+    for param in &info.parameters {
+        let field_name = sanitize_field_name(&param.name);
+        let rust_type = match param.param_type.as_str() {
+            "int" | "int64_t" => "i64",
+            "double" | "float" => "f64",
+            "bool" => "bool",
+            "std::string" | "string" => "String",
+            _ => "f64",
+        };
+        builder_fields.push_str(&format!("    {}: Option<{}>,\n", field_name, rust_type));
+        builder_methods.push_str(&format!(
+            r#"    /// Set {} parameter
+    pub fn {}(mut self, value: {}) -> Self {{
+        self.{} = Some(value);
+        self
+    }}
+
+"#,
+            param.name, field_name, rust_type, field_name
+        ));
+    }
+
+    // Generate build method
+    let mut link_inits = String::new();
+    let mut hub_inits = String::new();
+    let mut param_inits = String::new();
+
+    for sub in &info.subscribers {
+        // Convert ROS topic to HORUS format: /robot/scan -> robot.scan
+        let horus_topic = ros_topic_to_horus(&sub.topic);
+        link_inits.push_str(&format!(
+            r#"            {field}: {{
+                let topic = match &self.topic_prefix {{
+                    Some(p) => format!("{{}}.{{}}", p, "{topic}"),
+                    None => "{horus_topic}".to_string(),
+                }};
+                Link::consumer(&topic).expect("failed to create link")
+            }},
+"#,
+            field = sub.field_name,
+            topic = horus_topic,
+            horus_topic = horus_topic
+        ));
+    }
+
+    for pub_ in &info.publishers {
+        // Convert ROS topic to HORUS format: /robot/odom -> robot.odom
+        let horus_topic = ros_topic_to_horus(&pub_.topic);
+        hub_inits.push_str(&format!(
+            r#"            {field}: {{
+                let topic = match &self.topic_prefix {{
+                    Some(p) => format!("{{}}.{{}}", p, "{topic}"),
+                    None => "{horus_topic}".to_string(),
+                }};
+                Hub::new(&topic).expect("failed to create hub")
+            }},
+"#,
+            field = pub_.field_name,
+            topic = horus_topic,
+            horus_topic = horus_topic
+        ));
+    }
+
+    for param in &info.parameters {
+        let field_name = sanitize_field_name(&param.name);
+        // Use actual default value if available, otherwise use type-based default
+        let default = if let Some(ref val) = param.default_value {
+            // Format the value according to its type
+            match param.param_type.as_str() {
+                "int" | "int64_t" => {
+                    // Ensure it's a valid integer
+                    if val.parse::<i64>().is_ok() {
+                        val.clone()
+                    } else {
+                        "0".to_string()
+                    }
+                }
+                "double" | "float" => {
+                    // Ensure it's a valid float
+                    if val.parse::<f64>().is_ok() {
+                        let v = val.clone();
+                        // Add .0 if it's a whole number to make it a float literal
+                        if !v.contains('.') {
+                            format!("{}.0", v)
+                        } else {
+                            v
+                        }
+                    } else {
+                        "0.0".to_string()
+                    }
+                }
+                "bool" => {
+                    // Normalize boolean values
+                    if val == "true" || val == "True" || val == "1" {
+                        "true".to_string()
+                    } else {
+                        "false".to_string()
+                    }
+                }
+                "std::string" | "string" => {
+                    // Quote strings
+                    format!("\"{}\".to_string()", val.replace('"', "\\\""))
+                }
+                _ => format!("\"{}\".to_string()", val.replace('"', "\\\"")),
+            }
+        } else {
+            // No default value - use type-based fallback
+            match param.param_type.as_str() {
+                "int" | "int64_t" => "0".to_string(),
+                "double" | "float" => "0.0".to_string(),
+                "bool" => "false".to_string(),
+                _ => "Default::default()".to_string(),
+            }
+        };
+        param_inits.push_str(&format!(
+            "            {}: self.{}.unwrap_or({}),\n",
+            field_name, field_name, default
+        ));
+    }
+
+    format!(
+        r#"/// Builder for {}
+#[derive(Default)]
+pub struct {}Builder {{
+{}}}
+
+impl {}Builder {{
+    /// Create a new builder
+    pub fn new() -> Self {{
+        Self::default()
+    }}
+
+{}    /// Build the node
+    pub fn build(self) -> {} {{
+        {} {{
+{}{}{}            // Statistics
+            messages_processed: 0,
+            last_message_time_ns: 0,
+            error_count: 0,
+            tick_count: 0,
+        }}
+    }}
+}}
+
+"#,
+        struct_name,
+        struct_name,
+        builder_fields,
+        struct_name,
+        builder_methods,
+        struct_name,
+        struct_name,
+        link_inits,
+        hub_inits,
+        param_inits
+    )
+}
+
+/// Generate helper methods based on detected patterns
+fn generate_helper_methods(
+    struct_name: &str,
+    patterns: &[PatternAnalysis],
+    info: &ParsedNodeInfo,
+) -> String {
+    let mut methods = String::new();
+
+    // Get best pattern
+    let best_pattern = patterns
+        .first()
+        .map(|p| &p.pattern)
+        .unwrap_or(&DetectedPattern::Generic);
+
+    match best_pattern {
+        DetectedPattern::SimpleRelay {
+            input_type,
+            output_type,
+            ..
+        } => {
+            if input_type != output_type {
+                methods.push_str(&format!(
+                    r#"
+    /// Transform input message to output type
+    fn transform(&self, input: {}) -> {} {{
+        // TODO: Implement transformation logic
+        Default::default()
+    }}
+"#,
+                    input_type, output_type
+                ));
+            }
+        }
+        DetectedPattern::Aggregation { .. } => {
+            if let Some(pub_) = info.publishers.first() {
+                let output_type = cpp_msg_to_rust(&pub_.msg_type);
+                methods.push_str(&format!(
+                    r#"
+    /// Aggregate inputs into output
+    fn aggregate(&self) -> {} {{
+        // TODO: Implement aggregation logic
+        Default::default()
+    }}
+"#,
+                    output_type
+                ));
+            }
+        }
+        DetectedPattern::SafetyMonitor { .. } => {
+            methods.push_str(
+                r#"
+    /// Check if emergency stop is needed
+    fn check_emergency_stop(&self, min_distance: f64) -> bool {
+        min_distance < self.safety_distance
+    }
+"#,
+            );
+        }
+        DetectedPattern::Controller { .. } => {
+            methods.push_str(
+                r#"
+    /// Compute control error
+    fn compute_error(&self, setpoint: &impl std::fmt::Debug, feedback: &impl std::fmt::Debug) -> f64 {
+        // TODO: Implement error computation
+        0.0
+    }
+"#,
+            );
+        }
+        DetectedPattern::StateMachine { .. } => {
+            methods.push_str(
+                r#"
+    fn should_activate(&self) -> bool { false }
+    fn should_deactivate(&self) -> bool { false }
+    fn has_error(&self) -> bool { false }
+    fn can_recover(&self) -> bool { true }
+    fn on_activate(&mut self) {}
+    fn on_deactivate(&mut self) {}
+    fn on_error(&mut self) {}
+    fn on_recover(&mut self) {}
+    fn process_active_state(&mut self, _ctx: &mut Option<&mut NodeInfo>) {}
+"#,
+            );
+        }
+        DetectedPattern::PublisherOnly => {
+            for pub_ in &info.publishers {
+                let rust_type = cpp_msg_to_rust(&pub_.msg_type);
+                methods.push_str(&format!(
+                    r#"
+    /// Generate message for {}
+    fn generate_{}(&self) -> {} {{
+        // TODO: Implement message generation
+        Default::default()
+    }}
+"#,
+                    pub_.topic, pub_.field_name, rust_type
+                ));
+            }
+        }
+        DetectedPattern::SubscriberOnly => {
+            for sub in &info.subscribers {
+                let rust_type = cpp_msg_to_rust(&sub.msg_type);
+                methods.push_str(&format!(
+                    r#"
+    /// Process message from {}
+    fn process_{}(&mut self, _msg: {}) {{
+        // TODO: Implement message processing
+    }}
+"#,
+                    sub.topic, sub.field_name, rust_type
+                ));
+            }
+        }
+        _ => {}
+    }
+
+    if !methods.is_empty() {
+        format!(
+            r#"
+impl {} {{
+{}}}
+"#,
+            struct_name, methods
+        )
+    } else {
+        String::new()
+    }
+}
+
 /// Generate node skeleton from package with extracted info
 /// Format QoS settings as a comment string
 fn format_qos_comment(qos: &ExtractedQoS) -> String {
@@ -6001,6 +7580,13 @@ pub fn generate_node_skeleton_from_source(node_name: &str, info: &ParsedNodeInfo
     } else {
         info.class_name.clone()
     };
+
+    // PHASE 2: Detect patterns for smarter code generation
+    let patterns = detect_patterns(info);
+    let best_pattern = patterns.first();
+
+    // PHASE 3.3: Get HORUS built-in node recommendations
+    let builtin_recommendations = get_builtin_node_recommendations(&patterns, info);
 
     // Track used field names to avoid duplicates
     let mut used_fields: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -6128,6 +7714,10 @@ pub fn generate_node_skeleton_from_source(node_name: &str, info: &ParsedNodeInfo
         fields = "    // Add Hub/Link fields as needed\n".to_string();
     }
 
+    // PHASE 2: Add statistics fields
+    fields.push_str("\n");
+    fields.push_str(&generate_statistics_fields());
+
     // Generate new() initialization
     let mut init_fields = String::new();
     let mut init_used_fields: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -6160,26 +7750,89 @@ pub fn generate_node_skeleton_from_source(node_name: &str, info: &ParsedNodeInfo
             continue;
         }
         init_used_fields.insert(field_name.clone());
-        let default = match param.param_type.as_str() {
-            "int" | "int64_t" => "0",
-            "double" | "float" => "0.0",
-            "bool" => "false",
-            _ => "Default::default()",
+        // Use actual default value if available, otherwise use type-based default
+        let default = if let Some(ref val) = param.default_value {
+            match param.param_type.as_str() {
+                "int" | "int64_t" => {
+                    if val.parse::<i64>().is_ok() {
+                        val.clone()
+                    } else {
+                        "0".to_string()
+                    }
+                }
+                "double" | "float" => {
+                    if val.parse::<f64>().is_ok() {
+                        let v = val.clone();
+                        if !v.contains('.') {
+                            format!("{}.0", v)
+                        } else {
+                            v
+                        }
+                    } else {
+                        "0.0".to_string()
+                    }
+                }
+                "bool" => {
+                    if val == "true" || val == "True" || val == "1" {
+                        "true".to_string()
+                    } else {
+                        "false".to_string()
+                    }
+                }
+                "std::string" | "string" => {
+                    format!("\"{}\".to_string()", val.replace('"', "\\\""))
+                }
+                _ => format!("\"{}\".to_string()", val.replace('"', "\\\"")),
+            }
+        } else {
+            match param.param_type.as_str() {
+                "int" | "int64_t" => "0".to_string(),
+                "double" | "float" => "0.0".to_string(),
+                "bool" => "false".to_string(),
+                _ => "Default::default()".to_string(),
+            }
         };
         init_fields.push_str(&format!("            {}: {},\n", field_name, default));
     }
+
+    // PHASE 2: Add statistics initialization
+    init_fields.push_str(&generate_statistics_init());
 
     if init_fields.is_empty() {
         init_fields = "            // Initialize fields\n".to_string();
     }
 
-    // Generate tick() body
+    // PHASE 2: Generate tick() body using pattern-specific implementations
     let mut tick_body = String::new();
-    for sub in &info.subscribers {
-        tick_body.push_str(&format!(
-            "        // Process {} messages\n        if let Some(_msg) = self.{}.recv(&mut _ctx) {{\n            // Handle message\n        }}\n\n",
-            sub.topic, sub.field_name
-        ));
+
+    // Check if we have a high-confidence pattern with suggested implementation
+    let use_pattern_impl = best_pattern
+        .map(|p| p.confidence >= 0.7 && p.suggested_impl.is_some())
+        .unwrap_or(false);
+
+    if use_pattern_impl {
+        if let Some(pattern) = best_pattern {
+            if let Some(ref impl_code) = pattern.suggested_impl {
+                // Add pattern detection comment
+                tick_body.push_str(&format!(
+                    "        // Pattern detected: {:?} (confidence: {:.0}%)\n",
+                    pattern.pattern,
+                    pattern.confidence * 100.0
+                ));
+                tick_body.push_str("        self.tick_count += 1;\n\n");
+                tick_body.push_str(impl_code);
+            }
+        }
+    } else {
+        // Fallback to generic implementation with statistics
+        tick_body.push_str("        self.tick_count += 1;\n\n");
+
+        for sub in &info.subscribers {
+            tick_body.push_str(&format!(
+                "        // Process {} messages\n        if let Some(msg) = self.{}.recv(&mut _ctx) {{\n            self.messages_processed += 1;\n            self.last_message_time_ns = std::time::SystemTime::now()\n                .duration_since(std::time::UNIX_EPOCH)\n                .map(|d| d.as_nanos() as u64)\n                .unwrap_or(0);\n            // Handle message\n            let _ = msg; // Suppress unused warning\n        }}\n\n",
+                sub.topic, sub.field_name
+            ));
+        }
     }
 
     if !info.timers.is_empty() {
@@ -6201,7 +7854,8 @@ pub fn generate_node_skeleton_from_source(node_name: &str, info: &ParsedNodeInfo
     }
 
     if tick_body.is_empty() {
-        tick_body = "        // Implement node logic here\n".to_string();
+        tick_body =
+            "        // Implement node logic here\n        self.tick_count += 1;\n".to_string();
     }
 
     // Build additional info lines
@@ -6650,6 +8304,11 @@ pub fn generate_node_skeleton_from_source(node_name: &str, info: &ParsedNodeInfo
         extra_info.push_str("//!   HORUS: Use built-in sensor nodes (LiDAR, Camera, IMU, GPS)\n");
     }
 
+    // PHASE 3.3: Add HORUS built-in node recommendations
+    if !builtin_recommendations.is_empty() {
+        extra_info.push_str(&format_builtin_recommendations(&builtin_recommendations));
+    }
+
     let ros_label = if info.is_nodelet { "ROS1" } else { "ROS2" };
 
     format!(
@@ -6683,6 +8342,25 @@ impl {} {{
         Self {{
 {}        }}
     }}
+
+    /// Get node statistics
+    pub fn stats(&self) -> NodeStats {{
+        NodeStats {{
+            messages_processed: self.messages_processed,
+            tick_count: self.tick_count,
+            error_count: self.error_count,
+            last_message_time_ns: self.last_message_time_ns,
+        }}
+    }}
+}}
+
+/// Node statistics container
+#[derive(Debug, Clone, Default)]
+pub struct NodeStats {{
+    pub messages_processed: u64,
+    pub tick_count: u64,
+    pub error_count: u64,
+    pub last_message_time_ns: u64,
 }}
 
 impl Node for {} {{
@@ -6695,7 +8373,8 @@ impl Node for {} {{
 }}
 "#,
         struct_name, fields, struct_name, init_fields, struct_name, node_name, tick_body
-    )
+    ) + &generate_builder_struct(&struct_name, info)
+        + &generate_helper_methods(&struct_name, &patterns, info)
 }
 
 /// Generate node skeleton from package
@@ -6930,6 +8609,13 @@ pub fn convert_ros2_package(
                         fs::copy(&path, &dest).map_err(HorusError::Io)?;
                         result.files_created.push(dest);
                         result.config_files_copied += 1;
+
+                        // Parse YAML config files to extract parameter values
+                        if ext == "yaml" || ext == "yml" {
+                            if let Ok(params) = parse_ros_yaml_config(&path) {
+                                result.parsed_config_params.extend(params);
+                            }
+                        }
                     }
                 }
             }
@@ -8023,6 +9709,8 @@ pub struct ConvertResult {
     pub external_deps: Vec<ExternalDep>,
     pub cmake_targets: Vec<CmakeTarget>,
     pub message_deps: Vec<MessageDependency>,
+    /// Parsed parameters from YAML config files
+    pub parsed_config_params: Vec<ParsedParameter>,
 }
 
 impl Default for RosVersion {

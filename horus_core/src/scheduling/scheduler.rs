@@ -1386,14 +1386,21 @@ impl Scheduler {
             None
         };
 
+        // Get rate from node (can be overridden via set_node_rate)
+        let node_rate = node.rate_hz();
+
         self.nodes.push(RegisteredNode {
             node,
             priority,
             logging_enabled,
             initialized: false,
             context: Some(context),
-            rate_hz: None,   // Use global scheduler rate by default
-            last_tick: None, // Will be set on first tick
+            rate_hz: node_rate, // Use node's rate, or None for global rate
+            last_tick: if node_rate.is_some() {
+                Some(Instant::now())
+            } else {
+                None
+            },
             circuit_breaker: CircuitBreaker::new(5, 3, 5000), // 5 failures to open, 3 successes to close, 5s timeout
             is_rt_node,
             wcet_budget,
@@ -1406,13 +1413,24 @@ impl Scheduler {
             is_paused: false,        // Node starts unpaused
         });
 
-        println!(
-            "Added {} '{}' with priority {} (logging: {})",
-            if is_rt_node { "RT node" } else { "node" },
-            node_name,
-            priority,
-            logging_enabled
-        );
+        if let Some(rate) = node_rate {
+            println!(
+                "Added {} '{}' with priority {} at {:.1}Hz (logging: {})",
+                if is_rt_node { "RT node" } else { "node" },
+                node_name,
+                priority,
+                rate,
+                logging_enabled
+            );
+        } else {
+            println!(
+                "Added {} '{}' with priority {} (logging: {})",
+                if is_rt_node { "RT node" } else { "node" },
+                node_name,
+                priority,
+                logging_enabled
+            );
+        }
 
         self
     }
@@ -1443,14 +1461,21 @@ impl Scheduler {
 
         let context = NodeInfo::new(node_name.clone(), logging_enabled);
 
+        // Get rate from node (can be overridden via set_node_rate)
+        let node_rate = node.rate_hz();
+
         self.nodes.push(RegisteredNode {
             node,
             priority,
             logging_enabled,
             initialized: false,
             context: Some(context),
-            rate_hz: None,
-            last_tick: None,
+            rate_hz: node_rate, // Use node's rate, or None for global rate
+            last_tick: if node_rate.is_some() {
+                Some(Instant::now())
+            } else {
+                None
+            },
             circuit_breaker: CircuitBreaker::new(5, 3, 5000),
             is_rt_node: true,
             wcet_budget: Some(wcet_budget),
@@ -1463,10 +1488,17 @@ impl Scheduler {
             is_paused: false,
         });
 
-        println!(
-            "Added RT node '{}' with priority {} (WCET: {:?}, deadline: {:?})",
-            node_name, priority, wcet_budget, deadline
-        );
+        if let Some(rate) = node_rate {
+            println!(
+                "Added RT node '{}' with priority {} at {:.1}Hz (WCET: {:?}, deadline: {:?})",
+                node_name, priority, rate, wcet_budget, deadline
+            );
+        } else {
+            println!(
+                "Added RT node '{}' with priority {} (WCET: {:?}, deadline: {:?})",
+                node_name, priority, wcet_budget, deadline
+            );
+        }
 
         // If safety monitor exists, configure it for this node
         if let Some(ref mut monitor) = self.safety_monitor {

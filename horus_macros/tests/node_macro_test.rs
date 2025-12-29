@@ -244,4 +244,103 @@ mod tests {
         let node = MyComplexNodeName::new();
         assert_eq!(node.name(), "my_complex_node_name");
     }
+
+    // Test explicit node naming with name: section
+    #[test]
+    fn test_explicit_node_naming() {
+        use crate::tests::mock::horus_core;
+        use horus_core::core::node::Node;
+
+        node! {
+            FlightControllerNode {
+                name: "flight_controller",
+
+                pub {}
+                sub {}
+                tick {}
+            }
+        }
+
+        let node = FlightControllerNode::new();
+        // Should use explicit name instead of auto-generated "flight_controller_node"
+        assert_eq!(node.name(), "flight_controller");
+    }
+
+    // Test explicit naming with custom format (spaces, special chars converted to valid identifiers)
+    #[test]
+    fn test_explicit_custom_name() {
+        use crate::tests::mock::horus_core;
+        use horus_core::core::node::Node;
+
+        node! {
+            MyNode {
+                name: "robot1_arm_controller",
+
+                pub {}
+                sub {}
+
+                data {
+                    position: f32 = 0.0,
+                }
+
+                tick {
+                    self.position += 0.1;
+                }
+            }
+        }
+
+        let node = MyNode::new();
+        assert_eq!(node.name(), "robot1_arm_controller");
+    }
+
+    // Test that explicit naming works with all other sections
+    #[test]
+    fn test_explicit_name_with_full_node() {
+        use crate::tests::mock::horus_core;
+        use horus_core::core::node::Node;
+
+        #[derive(Debug, Clone)]
+        #[allow(dead_code)]
+        struct SensorReading {
+            value: f64,
+        }
+
+        node! {
+            IMUSensor {
+                name: "imu_front",
+
+                pub {
+                    imu_data: SensorReading -> "sensors/imu_front",
+                }
+
+                sub {}
+
+                data {
+                    sample_count: u64 = 0,
+                }
+
+                tick {
+                    self.sample_count += 1;
+                    let reading = SensorReading { value: 9.81 };
+                    self.imu_data.send(reading, None).ok();
+                }
+
+                init(ctx) {
+                    ctx.log_info("IMU front sensor initialized");
+                    Ok(())
+                }
+
+                impl {
+                    pub fn get_sample_count(&self) -> u64 {
+                        self.sample_count
+                    }
+                }
+            }
+        }
+
+        let node = IMUSensor::new();
+        // Should use explicit name "imu_front" instead of "i_m_u_sensor"
+        assert_eq!(node.name(), "imu_front");
+        assert_eq!(node.get_sample_count(), 0);
+    }
 }

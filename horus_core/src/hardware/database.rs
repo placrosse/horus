@@ -31,6 +31,8 @@ pub enum DeviceCategory {
     CanAdapter,
     /// Joystick/gamepad
     Joystick,
+    /// Bluetooth adapter
+    Bluetooth,
     /// Audio device
     Audio,
     /// Network adapter
@@ -60,6 +62,7 @@ impl DeviceCategory {
             Self::Gps => "GPS",
             Self::CanAdapter => "CAN Adapter",
             Self::Joystick => "Joystick",
+            Self::Bluetooth => "Bluetooth",
             Self::Audio => "Audio",
             Self::Network => "Network",
             Self::Power => "Power",
@@ -933,6 +936,403 @@ impl DeviceDatabase {
             Some("Joystick"),
             true,
         );
+
+        // Bluetooth adapters
+        // Intel
+        self.add_usb(
+            0x8087,
+            0x0A2A,
+            "Intel Wireless Bluetooth",
+            "Intel",
+            DeviceCategory::Bluetooth,
+            None,
+            false,
+        );
+        self.add_usb(
+            0x8087,
+            0x0A2B,
+            "Intel Wireless Bluetooth",
+            "Intel",
+            DeviceCategory::Bluetooth,
+            None,
+            false,
+        );
+        self.add_usb(
+            0x8087,
+            0x0AAA,
+            "Intel Wireless Bluetooth AX200",
+            "Intel",
+            DeviceCategory::Bluetooth,
+            None,
+            false,
+        );
+        self.add_usb(
+            0x8087,
+            0x0029,
+            "Intel AX201 Bluetooth",
+            "Intel",
+            DeviceCategory::Bluetooth,
+            None,
+            false,
+        );
+        self.add_usb(
+            0x8087,
+            0x0032,
+            "Intel AX210/211 Bluetooth",
+            "Intel",
+            DeviceCategory::Bluetooth,
+            None,
+            false,
+        );
+
+        // Broadcom
+        self.add_usb(
+            0x0A5C,
+            0x21E8,
+            "BCM20702A0 Bluetooth",
+            "Broadcom",
+            DeviceCategory::Bluetooth,
+            None,
+            false,
+        );
+        self.add_usb(
+            0x0A5C,
+            0x21E1,
+            "HP Broadcom Bluetooth",
+            "Broadcom",
+            DeviceCategory::Bluetooth,
+            None,
+            false,
+        );
+
+        // Realtek
+        self.add_usb(
+            0x0BDA,
+            0x8771,
+            "Realtek RTL8761B Bluetooth",
+            "Realtek",
+            DeviceCategory::Bluetooth,
+            None,
+            false,
+        );
+        self.add_usb(
+            0x0BDA,
+            0xB00A,
+            "Realtek Bluetooth",
+            "Realtek",
+            DeviceCategory::Bluetooth,
+            None,
+            false,
+        );
+        self.add_usb(
+            0x0BDA,
+            0xB009,
+            "Realtek Bluetooth 5.0",
+            "Realtek",
+            DeviceCategory::Bluetooth,
+            None,
+            false,
+        );
+
+        // Qualcomm/Atheros
+        self.add_usb(
+            0x0CF3,
+            0xE300,
+            "Qualcomm Atheros Bluetooth",
+            "Qualcomm",
+            DeviceCategory::Bluetooth,
+            None,
+            false,
+        );
+        self.add_usb(
+            0x0CF3,
+            0x3004,
+            "Atheros AR3012 Bluetooth",
+            "Qualcomm",
+            DeviceCategory::Bluetooth,
+            None,
+            false,
+        );
+
+        // Cambridge Silicon Radio (CSR)
+        self.add_usb(
+            0x0A12,
+            0x0001,
+            "CSR Bluetooth Adapter",
+            "Cambridge Silicon Radio",
+            DeviceCategory::Bluetooth,
+            None,
+            false,
+        );
+
+        // Network adapters (USB WiFi/Ethernet)
+        // Realtek WiFi
+        self.add_usb(
+            0x0BDA,
+            0x8812,
+            "Realtek RTL8812AU WiFi",
+            "Realtek",
+            DeviceCategory::Network,
+            None,
+            false,
+        );
+        self.add_usb(
+            0x0BDA,
+            0xB812,
+            "Realtek RTL8812BU WiFi",
+            "Realtek",
+            DeviceCategory::Network,
+            None,
+            false,
+        );
+        self.add_usb(
+            0x0BDA,
+            0x8179,
+            "Realtek RTL8188EUS WiFi",
+            "Realtek",
+            DeviceCategory::Network,
+            None,
+            false,
+        );
+        self.add_usb(
+            0x0BDA,
+            0xC811,
+            "Realtek RTL8811CU WiFi",
+            "Realtek",
+            DeviceCategory::Network,
+            None,
+            false,
+        );
+        self.add_usb(
+            0x0BDA,
+            0x1A2B,
+            "Realtek WiFi 6 AX",
+            "Realtek",
+            DeviceCategory::Network,
+            None,
+            false,
+        );
+
+        // Intel WiFi
+        self.add_usb(
+            0x8086,
+            0x0082,
+            "Intel Centrino Advanced-N 6205",
+            "Intel",
+            DeviceCategory::Network,
+            None,
+            false,
+        );
+        self.add_usb(
+            0x8086,
+            0x2723,
+            "Intel Wi-Fi 6 AX200",
+            "Intel",
+            DeviceCategory::Network,
+            None,
+            false,
+        );
+
+        // Atheros WiFi
+        self.add_usb(
+            0x0CF3,
+            0x9271,
+            "Atheros AR9271 WiFi",
+            "Qualcomm",
+            DeviceCategory::Network,
+            None,
+            true, // Common in robotics for long-range WiFi
+        );
+
+        // Ralink/MediaTek WiFi
+        self.add_usb(
+            0x148F,
+            0x5370,
+            "Ralink RT5370 WiFi",
+            "MediaTek",
+            DeviceCategory::Network,
+            None,
+            false,
+        );
+        self.add_usb(
+            0x148F,
+            0x7601,
+            "MediaTek MT7601U WiFi",
+            "MediaTek",
+            DeviceCategory::Network,
+            None,
+            false,
+        );
+
+        // USB Ethernet adapters
+        self.add_usb(
+            0x0B95,
+            0x772B,
+            "ASIX AX88772B Ethernet",
+            "ASIX",
+            DeviceCategory::Network,
+            None,
+            true, // Common for SBC networking
+        );
+        self.add_usb(
+            0x0B95,
+            0x1790,
+            "ASIX AX88179 Gigabit Ethernet",
+            "ASIX",
+            DeviceCategory::Network,
+            None,
+            true,
+        );
+        self.add_usb(
+            0x0BDA,
+            0x8153,
+            "Realtek RTL8153 Gigabit Ethernet",
+            "Realtek",
+            DeviceCategory::Network,
+            None,
+            true,
+        );
+
+        // Audio devices
+        // Generic USB audio class
+        self.add_usb(
+            0x08BB,
+            0x2902,
+            "Texas Instruments PCM2902 Audio",
+            "Texas Instruments",
+            DeviceCategory::Audio,
+            None,
+            false,
+        );
+        self.add_usb(
+            0x08BB,
+            0x2912,
+            "Texas Instruments PCM2912 Audio",
+            "Texas Instruments",
+            DeviceCategory::Audio,
+            None,
+            false,
+        );
+
+        // C-Media
+        self.add_usb(
+            0x0D8C,
+            0x0014,
+            "C-Media USB Audio",
+            "C-Media",
+            DeviceCategory::Audio,
+            None,
+            false,
+        );
+        self.add_usb(
+            0x0D8C,
+            0x0102,
+            "C-Media USB Sound Device",
+            "C-Media",
+            DeviceCategory::Audio,
+            None,
+            false,
+        );
+        self.add_usb(
+            0x0D8C,
+            0x013C,
+            "C-Media USB Headphone Set",
+            "C-Media",
+            DeviceCategory::Audio,
+            None,
+            false,
+        );
+
+        // Logitech Audio
+        self.add_usb(
+            0x046D,
+            0x0A44,
+            "Logitech USB Headset",
+            "Logitech",
+            DeviceCategory::Audio,
+            None,
+            false,
+        );
+        self.add_usb(
+            0x046D,
+            0x0A29,
+            "Logitech USB Headset H600",
+            "Logitech",
+            DeviceCategory::Audio,
+            None,
+            false,
+        );
+
+        // Blue Microphones
+        self.add_usb(
+            0x0D8C,
+            0x016C,
+            "Blue Yeti Microphone",
+            "Blue Microphones",
+            DeviceCategory::Audio,
+            None,
+            false,
+        );
+        self.add_usb(
+            0xB58E,
+            0x9E84,
+            "Blue Yeti X Microphone",
+            "Blue Microphones",
+            DeviceCategory::Audio,
+            None,
+            false,
+        );
+
+        // Focusrite
+        self.add_usb(
+            0x1235,
+            0x8200,
+            "Focusrite Scarlett 2i2",
+            "Focusrite",
+            DeviceCategory::Audio,
+            None,
+            false,
+        );
+        self.add_usb(
+            0x1235,
+            0x8204,
+            "Focusrite Scarlett Solo",
+            "Focusrite",
+            DeviceCategory::Audio,
+            None,
+            false,
+        );
+
+        // Audio-specific for robotics (ReSpeaker, etc.)
+        self.add_usb(
+            0x2886,
+            0x0018,
+            "Seeed ReSpeaker Mic Array v2.0",
+            "Seeed",
+            DeviceCategory::Audio,
+            None,
+            true, // Common for voice-controlled robotics
+        );
+        self.add_usb(
+            0x2886,
+            0x0007,
+            "Seeed ReSpeaker USB Mic Array",
+            "Seeed",
+            DeviceCategory::Audio,
+            None,
+            true,
+        );
+
+        // PlayStation Audio (for VR/AR robotics applications)
+        self.add_usb(
+            0x054C,
+            0x0CE6,
+            "Sony DualSense Audio",
+            "Sony",
+            DeviceCategory::Audio,
+            None,
+            false,
+        );
     }
 
     fn populate_i2c_devices(&mut self) {
@@ -1315,6 +1715,21 @@ impl DeviceDatabase {
         self.vendors.insert(0x054C, "Sony");
         self.vendors.insert(0x046D, "Logitech");
         self.vendors.insert(0x0451, "Texas Instruments");
+        // Bluetooth vendors
+        self.vendors.insert(0x8087, "Intel");
+        self.vendors.insert(0x0A5C, "Broadcom");
+        self.vendors.insert(0x0BDA, "Realtek");
+        self.vendors.insert(0x0CF3, "Qualcomm/Atheros");
+        self.vendors.insert(0x0A12, "Cambridge Silicon Radio");
+        // Network vendors
+        self.vendors.insert(0x148F, "MediaTek/Ralink");
+        self.vendors.insert(0x0B95, "ASIX");
+        // Audio vendors
+        self.vendors.insert(0x08BB, "Texas Instruments");
+        self.vendors.insert(0x0D8C, "C-Media");
+        self.vendors.insert(0xB58E, "Blue Microphones");
+        self.vendors.insert(0x1235, "Focusrite");
+        self.vendors.insert(0x2886, "Seeed");
     }
 
     fn add_usb(

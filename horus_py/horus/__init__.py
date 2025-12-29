@@ -41,6 +41,12 @@ try:
         TensorHandle,
         cuda_is_available,
         cuda_device_count,
+        # Native message classes (registered from Rust)
+        CmdVel as _RustCmdVel,
+        Pose2D as _RustPose2D,
+        Imu as _RustImu,
+        Odometry as _RustOdometry,
+        LaserScan as _RustLaserScan,
     )
 except ImportError:
     # Fallback for testing without Rust bindings
@@ -1144,7 +1150,18 @@ try:
     _has_messages = True
 except ImportError:
     _has_messages = False
-    # horus_library module not available
+    # horus_library module not available - fall back to Rust message classes if available
+    try:
+        # Use Rust native message classes as fallback
+        CmdVel = _RustCmdVel
+        Pose2D = _RustPose2D
+        Imu = _RustImu
+        Odometry = _RustOdometry
+        LaserScan = _RustLaserScan
+        _has_messages = True
+    except NameError:
+        # Neither Python library nor Rust classes available
+        pass
 
 __all__ = [
     # Core API
@@ -1158,6 +1175,14 @@ __all__ = [
     "default_router_endpoint",  # Helper: "topic@router"
     "router_endpoint",  # Helper: "topic@host:port"
     "run",
+    # Typed message classes (zero-copy IPC)
+    "CmdVel",
+    "Pose2D",
+    "Imu",
+    "Odometry",
+    "LaserScan",
+    # Custom message generation
+    "msggen",  # horus.msggen module for custom typed messages
     # Tensor system for zero-copy ML/AI
     "TensorPool",
     "TensorHandle",
@@ -1198,6 +1223,13 @@ __all__ = [
     "WorldConfigPy",
 ]
 
+# Export typed message classes
+CmdVel = _RustCmdVel
+Pose2D = _RustPose2D
+Imu = _RustImu
+Odometry = _RustOdometry
+# LaserScan handled below (after nodes import to avoid override)
+
 # Import simple async API
 from .async_node import AsyncNode, AsyncHub, sleep, gather, wait_for
 
@@ -1231,11 +1263,25 @@ from .nodes import (
     ImuData,
     GpsData,
     ImageData,
-    LaserScan,
 )
+
+# Only import LaserScan from nodes if we don't have the Rust version
+# (The Rust version has __topic_name__ attribute for Hub support)
+try:
+    if not hasattr(LaserScan, '__topic_name__'):
+        from .nodes import LaserScan
+except NameError:
+    # LaserScan not defined yet, import from nodes
+    from .nodes import LaserScan
 
 # NOTE: Hub is now imported directly from Rust (no alias needed)
 # Old: Hub = _PyHub (removed - Hub is imported directly on line 24)
+
+# Import custom message generator module
+from . import msggen
+
+# Ensure LaserScan from Rust is exported (not overwritten by nodes)
+LaserScan = _RustLaserScan
 
 # Add message types to __all__ if available
 if _has_messages:

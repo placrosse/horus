@@ -117,6 +117,11 @@ impl PyScheduler {
     }
 
     /// Add a node with priority, logging, and optional rate control
+    ///
+    /// Rate precedence:
+    /// 1. Explicit `rate_hz` parameter (if provided)
+    /// 2. Node's `rate` attribute (rate_hz equivalent)
+    /// 3. Global scheduler rate (fallback)
     #[pyo3(signature = (node, priority, logging_enabled, rate_hz=None))]
     fn add(
         &mut self,
@@ -142,8 +147,13 @@ impl PyScheduler {
         // Create NodeInfo context for this node
         let context = Arc::new(Mutex::new(CoreNodeInfo::new(name.clone(), logging_enabled)));
 
-        // Use provided rate or default to global scheduler rate
-        let node_rate = rate_hz.unwrap_or(self.tick_rate_hz);
+        // Rate precedence: explicit param > node.rate > global rate
+        let node_rate = rate_hz.unwrap_or_else(|| {
+            // Try to get rate from node's 'rate' attribute (rate_hz equivalent)
+            node.getattr(py, "rate")
+                .and_then(|attr| attr.extract::<f64>(py))
+                .unwrap_or(self.tick_rate_hz)
+        });
 
         // Store the registered node
         let mut nodes = self

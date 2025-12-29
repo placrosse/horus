@@ -9,8 +9,14 @@
 //! - **USB Discovery**: Enumerate USB devices with VID/PID identification
 //! - **Serial Discovery**: Find serial ports and identify connected devices
 //! - **I2C Discovery**: Scan I2C buses for connected devices
+//! - **SPI Discovery**: Enumerate SPI buses and chip selects
+//! - **CAN Discovery**: Find SocketCAN interfaces
 //! - **GPIO Discovery**: Enumerate available GPIO chips and lines
+//! - **PWM Discovery**: Find PWM chips and channels
 //! - **Camera Discovery**: Find video capture devices
+//! - **Bluetooth Discovery**: Enumerate Bluetooth adapters and devices
+//! - **Network Discovery**: Find network interfaces (Ethernet, WiFi)
+//! - **Audio Discovery**: Enumerate audio cards and devices
 //!
 //! ## Quick Start
 //!
@@ -44,10 +50,28 @@ mod usb;
 mod i2c;
 
 #[cfg(target_os = "linux")]
+mod spi;
+
+#[cfg(target_os = "linux")]
+mod can;
+
+#[cfg(target_os = "linux")]
 mod gpio;
 
 #[cfg(target_os = "linux")]
+mod pwm;
+
+#[cfg(target_os = "linux")]
 mod camera;
+
+#[cfg(target_os = "linux")]
+mod bluetooth;
+
+#[cfg(target_os = "linux")]
+mod network;
+
+#[cfg(target_os = "linux")]
+mod audio;
 
 // Re-export main types
 pub use database::{DeviceCategory, DeviceDatabase, DeviceInfo, DriverMatch, MatchConfidence};
@@ -63,7 +87,32 @@ pub use usb::{UsbDevice, UsbDiscovery};
 pub use i2c::{I2cBus, I2cDevice, I2cDiscovery};
 
 #[cfg(target_os = "linux")]
+pub use spi::{SpiBus, SpiChipSelect, SpiDiscovery};
+
+#[cfg(target_os = "linux")]
+pub use can::{format_bitrate, CanDiscovery, CanInterface, CanInterfaceType, CanState};
+
+#[cfg(target_os = "linux")]
 pub use gpio::{GpioChip, GpioDiscovery, GpioLine};
 
 #[cfg(target_os = "linux")]
+pub use pwm::{format_frequency, PwmChannel, PwmChip, PwmDiscovery, PwmPolarity};
+
+#[cfg(target_os = "linux")]
 pub use camera::{Camera, CameraDiscovery, CameraType, VideoFormat};
+
+#[cfg(target_os = "linux")]
+pub use bluetooth::{
+    BluetoothAdapter, BluetoothAdapterType, BluetoothDevice, BluetoothDeviceClass,
+    BluetoothDiscovery, BluetoothState,
+};
+
+#[cfg(target_os = "linux")]
+pub use network::{
+    format_bytes, NetworkDiscovery, NetworkInterface, NetworkInterfaceType, NetworkState, WifiInfo,
+};
+
+#[cfg(target_os = "linux")]
+pub use audio::{
+    AudioCard, AudioDevice, AudioDeviceType, AudioDirection, AudioDiscovery, AudioStream,
+};

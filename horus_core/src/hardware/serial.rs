@@ -3,7 +3,6 @@
 //! Discovers serial ports and identifies connected devices by their
 //! USB VID/PID or platform-specific paths.
 
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 

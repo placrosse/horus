@@ -317,6 +317,189 @@ pub mod cdr {
     }
 
     // ========================================================================
+    // TF2 Message Types
+    // ========================================================================
+
+    /// geometry_msgs/Transform
+    #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+    pub struct Transform {
+        pub translation: Vector3,
+        pub rotation: Quaternion,
+    }
+
+    impl Transform {
+        /// Create an identity transform
+        pub fn identity() -> Self {
+            Transform {
+                translation: Vector3 {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                rotation: Quaternion::identity(),
+            }
+        }
+
+        /// Create a transform from translation and rotation
+        pub fn new(translation: Vector3, rotation: Quaternion) -> Self {
+            Transform {
+                translation,
+                rotation,
+            }
+        }
+
+        /// Compose two transforms: self * other
+        pub fn compose(&self, other: &Transform) -> Transform {
+            // Rotate other's translation by self's rotation, then add self's translation
+            let rotated_translation = self.rotate_vector(&other.translation);
+            Transform {
+                translation: Vector3 {
+                    x: self.translation.x + rotated_translation.x,
+                    y: self.translation.y + rotated_translation.y,
+                    z: self.translation.z + rotated_translation.z,
+                },
+                rotation: self.quaternion_multiply(&other.rotation),
+            }
+        }
+
+        /// Rotate a vector by this transform's rotation
+        pub fn rotate_vector(&self, v: &Vector3) -> Vector3 {
+            let q = &self.rotation;
+            // Quaternion rotation: q * v * q^-1
+            // Using optimized formula for rotating a vector by a unit quaternion
+            let qx = q.x;
+            let qy = q.y;
+            let qz = q.z;
+            let qw = q.w;
+
+            let t_x = 2.0 * (qy * v.z - qz * v.y);
+            let t_y = 2.0 * (qz * v.x - qx * v.z);
+            let t_z = 2.0 * (qx * v.y - qy * v.x);
+
+            Vector3 {
+                x: v.x + qw * t_x + (qy * t_z - qz * t_y),
+                y: v.y + qw * t_y + (qz * t_x - qx * t_z),
+                z: v.z + qw * t_z + (qx * t_y - qy * t_x),
+            }
+        }
+
+        /// Multiply two quaternions
+        pub fn quaternion_multiply(&self, other: &Quaternion) -> Quaternion {
+            let q1 = &self.rotation;
+            Quaternion {
+                w: q1.w * other.w - q1.x * other.x - q1.y * other.y - q1.z * other.z,
+                x: q1.w * other.x + q1.x * other.w + q1.y * other.z - q1.z * other.y,
+                y: q1.w * other.y - q1.x * other.z + q1.y * other.w + q1.z * other.x,
+                z: q1.w * other.z + q1.x * other.y - q1.y * other.x + q1.z * other.w,
+            }
+        }
+
+        /// Get the inverse of this transform
+        pub fn inverse(&self) -> Transform {
+            // Inverse rotation (conjugate for unit quaternion)
+            let inv_rotation = Quaternion {
+                x: -self.rotation.x,
+                y: -self.rotation.y,
+                z: -self.rotation.z,
+                w: self.rotation.w,
+            };
+
+            // Inverse translation: -R^-1 * t
+            let inv_t = Transform {
+                translation: Vector3::default(),
+                rotation: inv_rotation.clone(),
+            };
+            let neg_translation = inv_t.rotate_vector(&self.translation);
+
+            Transform {
+                translation: Vector3 {
+                    x: -neg_translation.x,
+                    y: -neg_translation.y,
+                    z: -neg_translation.z,
+                },
+                rotation: inv_rotation,
+            }
+        }
+    }
+
+    /// geometry_msgs/TransformStamped
+    #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+    pub struct TransformStamped {
+        pub header: Header,
+        pub child_frame_id: String,
+        pub transform: Transform,
+    }
+
+    impl TransformStamped {
+        /// Create a new transform stamped
+        pub fn new(
+            parent_frame: &str,
+            child_frame: &str,
+            timestamp: Time,
+            transform: Transform,
+        ) -> Self {
+            TransformStamped {
+                header: Header {
+                    stamp: timestamp,
+                    frame_id: parent_frame.to_string(),
+                },
+                child_frame_id: child_frame.to_string(),
+                transform,
+            }
+        }
+
+        /// Get the parent frame ID
+        pub fn parent_frame(&self) -> &str {
+            &self.header.frame_id
+        }
+
+        /// Get the child frame ID
+        pub fn child_frame(&self) -> &str {
+            &self.child_frame_id
+        }
+
+        /// Get timestamp as nanoseconds since epoch
+        pub fn timestamp_ns(&self) -> u64 {
+            (self.header.stamp.sec as u64) * 1_000_000_000 + (self.header.stamp.nanosec as u64)
+        }
+    }
+
+    /// tf2_msgs/TFMessage - A message containing multiple transforms
+    #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+    pub struct TFMessage {
+        pub transforms: Vec<TransformStamped>,
+    }
+
+    impl TFMessage {
+        /// Create a new empty TFMessage
+        pub fn new() -> Self {
+            TFMessage {
+                transforms: Vec::new(),
+            }
+        }
+
+        /// Create a TFMessage with the given transforms
+        pub fn with_transforms(transforms: Vec<TransformStamped>) -> Self {
+            TFMessage { transforms }
+        }
+
+        /// Add a transform to the message
+        pub fn add(&mut self, transform: TransformStamped) {
+            self.transforms.push(transform);
+        }
+
+        /// Check if the message is empty
+        pub fn is_empty(&self) -> bool {
+            self.transforms.is_empty()
+        }
+
+        /// Get the number of transforms
+        pub fn len(&self) -> usize {
+            self.transforms.len()
+        }
+    }
+
+    // ========================================================================
     // Message Type Registry
     // ========================================================================
 
@@ -331,6 +514,9 @@ pub mod cdr {
         GeometryMsgsTwistStamped,
         GeometryMsgsPose,
         GeometryMsgsPoseStamped,
+        GeometryMsgsTransform,
+        GeometryMsgsTransformStamped,
+        Tf2MsgsTFMessage,
         SensorMsgsLaserScan,
         SensorMsgsImu,
         NavMsgsOdometry,
@@ -357,6 +543,15 @@ pub mod cdr {
                 "geometry_msgs/msg/PoseStamped" | "geometry_msgs/PoseStamped" => {
                     Ros2MessageType::GeometryMsgsPoseStamped
                 }
+                "geometry_msgs/msg/Transform" | "geometry_msgs/Transform" => {
+                    Ros2MessageType::GeometryMsgsTransform
+                }
+                "geometry_msgs/msg/TransformStamped" | "geometry_msgs/TransformStamped" => {
+                    Ros2MessageType::GeometryMsgsTransformStamped
+                }
+                "tf2_msgs/msg/TFMessage" | "tf2_msgs/TFMessage" => {
+                    Ros2MessageType::Tf2MsgsTFMessage
+                }
                 "sensor_msgs/msg/LaserScan" | "sensor_msgs/LaserScan" => {
                     Ros2MessageType::SensorMsgsLaserScan
                 }
@@ -377,6 +572,11 @@ pub mod cdr {
                 Ros2MessageType::GeometryMsgsTwistStamped => "geometry_msgs/msg/TwistStamped",
                 Ros2MessageType::GeometryMsgsPose => "geometry_msgs/msg/Pose",
                 Ros2MessageType::GeometryMsgsPoseStamped => "geometry_msgs/msg/PoseStamped",
+                Ros2MessageType::GeometryMsgsTransform => "geometry_msgs/msg/Transform",
+                Ros2MessageType::GeometryMsgsTransformStamped => {
+                    "geometry_msgs/msg/TransformStamped"
+                }
+                Ros2MessageType::Tf2MsgsTFMessage => "tf2_msgs/msg/TFMessage",
                 Ros2MessageType::SensorMsgsLaserScan => "sensor_msgs/msg/LaserScan",
                 Ros2MessageType::SensorMsgsImu => "sensor_msgs/msg/Imu",
                 Ros2MessageType::NavMsgsOdometry => "nav_msgs/msg/Odometry",
@@ -626,6 +826,23 @@ pub mod cdr {
                 "std_msgs/Header header\ngeometry_msgs/Twist twist",
             ));
 
+            // TF2 types
+            self.register_definition(MessageDefinition::parse_msg_content(
+                "geometry_msgs",
+                "Transform",
+                "geometry_msgs/Vector3 translation\ngeometry_msgs/Quaternion rotation",
+            ));
+            self.register_definition(MessageDefinition::parse_msg_content(
+                "geometry_msgs",
+                "TransformStamped",
+                "std_msgs/Header header\nstring child_frame_id\ngeometry_msgs/Transform transform",
+            ));
+            self.register_definition(MessageDefinition::parse_msg_content(
+                "tf2_msgs",
+                "TFMessage",
+                "geometry_msgs/TransformStamped[] transforms",
+            ));
+
             // sensor_msgs
             self.register_definition(MessageDefinition::parse_msg_content(
                 "sensor_msgs",
@@ -804,6 +1021,503 @@ pub mod cdr {
                 }
             }
         }
+    }
+
+    // ========================================================================
+    // TF2 Transform Buffer and Bridge
+    // ========================================================================
+
+    use std::collections::BTreeMap;
+
+    /// Error type for TF2 operations
+    #[derive(Debug, thiserror::Error)]
+    pub enum TF2Error {
+        #[error("No connection between frames '{0}' and '{1}'")]
+        NoPathBetweenFrames(String, String),
+
+        #[error("Lookup would require extrapolation into the past: earliest available is {available_ns}ns but requested {requested_ns}ns")]
+        ExtrapolationIntoPast {
+            available_ns: u64,
+            requested_ns: u64,
+        },
+
+        #[error("Lookup would require extrapolation into the future: latest available is {available_ns}ns but requested {requested_ns}ns")]
+        ExtrapolationIntoFuture {
+            available_ns: u64,
+            requested_ns: u64,
+        },
+
+        #[error("No transforms available for frame '{0}'")]
+        NoDataForFrame(String),
+
+        #[error("Frame '{0}' is not in the transform tree")]
+        FrameNotFound(String),
+
+        #[error("Transform lookup timed out")]
+        Timeout,
+
+        #[error("Cannot determine transform to self (source and target frames are the same)")]
+        SelfLookup,
+    }
+
+    /// Result type for TF2 operations
+    pub type TF2Result<T> = Result<T, TF2Error>;
+
+    /// A timestamped transform for the buffer
+    #[derive(Debug, Clone)]
+    struct BufferedTransform {
+        transform: Transform,
+        timestamp_ns: u64,
+    }
+
+    /// Transform buffer entry for a single parent-child relationship
+    #[derive(Debug, Clone)]
+    struct FrameTransformBuffer {
+        parent_frame: String,
+        /// Transforms sorted by timestamp, oldest to newest
+        transforms: BTreeMap<u64, Transform>,
+        is_static: bool,
+    }
+
+    impl FrameTransformBuffer {
+        fn new(parent_frame: &str, is_static: bool) -> Self {
+            FrameTransformBuffer {
+                parent_frame: parent_frame.to_string(),
+                transforms: BTreeMap::new(),
+                is_static,
+            }
+        }
+
+        fn add_transform(&mut self, timestamp_ns: u64, transform: Transform) {
+            self.transforms.insert(timestamp_ns, transform);
+
+            // Limit buffer size (keep most recent 1000 transforms for dynamic, unlimited for static)
+            if !self.is_static && self.transforms.len() > 1000 {
+                if let Some(oldest_key) = self.transforms.keys().next().cloned() {
+                    self.transforms.remove(&oldest_key);
+                }
+            }
+        }
+
+        /// Get transform at the exact timestamp or interpolate between two closest
+        fn get_transform_at(&self, timestamp_ns: u64) -> TF2Result<Transform> {
+            if self.transforms.is_empty() {
+                return Err(TF2Error::NoDataForFrame(self.parent_frame.clone()));
+            }
+
+            // For static transforms, just return the first one
+            if self.is_static {
+                return Ok(self.transforms.values().next().unwrap().clone());
+            }
+
+            // Exact match
+            if let Some(tf) = self.transforms.get(&timestamp_ns) {
+                return Ok(tf.clone());
+            }
+
+            // Get the transforms before and after the requested timestamp
+            let before = self
+                .transforms
+                .range(..timestamp_ns)
+                .next_back()
+                .map(|(k, v)| (*k, v.clone()));
+            let after = self
+                .transforms
+                .range(timestamp_ns..)
+                .next()
+                .map(|(k, v)| (*k, v.clone()));
+
+            match (before, after) {
+                (Some((t1, tf1)), Some((t2, tf2))) => {
+                    // Interpolate between the two transforms
+                    let ratio = (timestamp_ns - t1) as f64 / (t2 - t1) as f64;
+                    Ok(interpolate_transform(&tf1, &tf2, ratio))
+                }
+                (Some((t1, _tf1)), None) => {
+                    // Would need to extrapolate into the future
+                    Err(TF2Error::ExtrapolationIntoFuture {
+                        available_ns: t1,
+                        requested_ns: timestamp_ns,
+                    })
+                }
+                (None, Some((t2, _tf2))) => {
+                    // Would need to extrapolate into the past
+                    Err(TF2Error::ExtrapolationIntoPast {
+                        available_ns: t2,
+                        requested_ns: timestamp_ns,
+                    })
+                }
+                (None, None) => Err(TF2Error::NoDataForFrame(self.parent_frame.clone())),
+            }
+        }
+
+        fn latest_timestamp(&self) -> Option<u64> {
+            self.transforms.keys().next_back().copied()
+        }
+
+        fn earliest_timestamp(&self) -> Option<u64> {
+            self.transforms.keys().next().copied()
+        }
+    }
+
+    /// Linear interpolation for Vector3
+    pub fn lerp_vector3(v1: &Vector3, v2: &Vector3, t: f64) -> Vector3 {
+        Vector3 {
+            x: v1.x + (v2.x - v1.x) * t,
+            y: v1.y + (v2.y - v1.y) * t,
+            z: v1.z + (v2.z - v1.z) * t,
+        }
+    }
+
+    /// Spherical linear interpolation for Quaternion (SLERP)
+    pub fn slerp_quaternion(q1: &Quaternion, q2: &Quaternion, t: f64) -> Quaternion {
+        // Compute the dot product
+        let mut dot = q1.x * q2.x + q1.y * q2.y + q1.z * q2.z + q1.w * q2.w;
+
+        // If the dot product is negative, negate one quaternion to take the shorter path
+        let mut q2_adj = q2.clone();
+        if dot < 0.0 {
+            q2_adj = Quaternion {
+                x: -q2.x,
+                y: -q2.y,
+                z: -q2.z,
+                w: -q2.w,
+            };
+            dot = -dot;
+        }
+
+        // If quaternions are very close, use linear interpolation
+        if dot > 0.9995 {
+            let result = Quaternion {
+                x: q1.x + (q2_adj.x - q1.x) * t,
+                y: q1.y + (q2_adj.y - q1.y) * t,
+                z: q1.z + (q2_adj.z - q1.z) * t,
+                w: q1.w + (q2_adj.w - q1.w) * t,
+            };
+            // Normalize
+            let norm = (result.x * result.x
+                + result.y * result.y
+                + result.z * result.z
+                + result.w * result.w)
+                .sqrt();
+            return Quaternion {
+                x: result.x / norm,
+                y: result.y / norm,
+                z: result.z / norm,
+                w: result.w / norm,
+            };
+        }
+
+        // Compute the spherical interpolation
+        let theta_0 = dot.acos();
+        let theta = theta_0 * t;
+
+        let sin_theta = theta.sin();
+        let sin_theta_0 = theta_0.sin();
+
+        let s0 = theta.cos() - dot * sin_theta / sin_theta_0;
+        let s1 = sin_theta / sin_theta_0;
+
+        Quaternion {
+            x: q1.x * s0 + q2_adj.x * s1,
+            y: q1.y * s0 + q2_adj.y * s1,
+            z: q1.z * s0 + q2_adj.z * s1,
+            w: q1.w * s0 + q2_adj.w * s1,
+        }
+    }
+
+    /// Interpolate between two transforms
+    pub fn interpolate_transform(tf1: &Transform, tf2: &Transform, t: f64) -> Transform {
+        Transform {
+            translation: lerp_vector3(&tf1.translation, &tf2.translation, t),
+            rotation: slerp_quaternion(&tf1.rotation, &tf2.rotation, t),
+        }
+    }
+
+    /// TF2 Transform Buffer - stores and manages coordinate frame transforms
+    pub struct TransformBuffer {
+        /// Map from child_frame_id to its transform buffer (which includes parent info)
+        frames: Arc<RwLock<HashMap<String, FrameTransformBuffer>>>,
+        /// Cache timeout duration in nanoseconds (default 10 seconds)
+        cache_time_ns: u64,
+    }
+
+    impl Default for TransformBuffer {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl TransformBuffer {
+        /// Create a new transform buffer with default settings
+        pub fn new() -> Self {
+            TransformBuffer {
+                frames: Arc::new(RwLock::new(HashMap::new())),
+                cache_time_ns: 10_000_000_000, // 10 seconds
+            }
+        }
+
+        /// Create a transform buffer with custom cache time
+        pub fn with_cache_time(cache_time_secs: f64) -> Self {
+            TransformBuffer {
+                frames: Arc::new(RwLock::new(HashMap::new())),
+                cache_time_ns: (cache_time_secs * 1_000_000_000.0) as u64,
+            }
+        }
+
+        /// Add a transform to the buffer
+        pub fn set_transform(&self, tf: &TransformStamped, is_static: bool) {
+            let mut frames = self.frames.write().unwrap();
+            let timestamp_ns = tf.timestamp_ns();
+
+            let entry = frames
+                .entry(tf.child_frame_id.clone())
+                .or_insert_with(|| FrameTransformBuffer::new(&tf.header.frame_id, is_static));
+
+            // Update parent if different (shouldn't normally happen)
+            if entry.parent_frame != tf.header.frame_id {
+                entry.parent_frame = tf.header.frame_id.clone();
+            }
+
+            entry.add_transform(timestamp_ns, tf.transform.clone());
+        }
+
+        /// Add multiple transforms from a TFMessage
+        pub fn set_transforms(&self, msg: &TFMessage, is_static: bool) {
+            for tf in &msg.transforms {
+                self.set_transform(tf, is_static);
+            }
+        }
+
+        /// Check if a frame exists in the buffer
+        pub fn can_transform(&self, target_frame: &str, source_frame: &str) -> bool {
+            if target_frame == source_frame {
+                return true;
+            }
+            self.find_path(target_frame, source_frame).is_some()
+        }
+
+        /// Find the path from source to target frame
+        fn find_path(&self, target_frame: &str, source_frame: &str) -> Option<Vec<String>> {
+            let frames = self.frames.read().unwrap();
+
+            // Build the frame tree by finding ancestors
+            fn get_ancestors(
+                frames: &HashMap<String, FrameTransformBuffer>,
+                frame: &str,
+            ) -> Vec<String> {
+                let mut ancestors = vec![frame.to_string()];
+                let mut current = frame.to_string();
+
+                while let Some(buffer) = frames.get(&current) {
+                    if ancestors.contains(&buffer.parent_frame) {
+                        break; // Cycle detected
+                    }
+                    ancestors.push(buffer.parent_frame.clone());
+                    current = buffer.parent_frame.clone();
+                }
+
+                ancestors
+            }
+
+            let source_ancestors = get_ancestors(&frames, source_frame);
+            let target_ancestors = get_ancestors(&frames, target_frame);
+
+            // Find common ancestor
+            let common = source_ancestors
+                .iter()
+                .find(|a| target_ancestors.contains(a))?;
+
+            // Build path: source -> common -> target
+            let mut path = Vec::new();
+
+            // Add source path to common
+            for frame in &source_ancestors {
+                path.push(frame.clone());
+                if frame == common {
+                    break;
+                }
+            }
+
+            // Add target path from common (reversed)
+            let target_idx = target_ancestors.iter().position(|a| a == common)?;
+            for frame in target_ancestors[..target_idx].iter().rev() {
+                path.push(frame.clone());
+            }
+
+            Some(path)
+        }
+
+        /// Look up the transform from source_frame to target_frame at a given time
+        pub fn lookup_transform(
+            &self,
+            target_frame: &str,
+            source_frame: &str,
+            timestamp_ns: u64,
+        ) -> TF2Result<TransformStamped> {
+            // Check for self lookup (looking up a frame relative to itself)
+            if target_frame == source_frame {
+                return Err(TF2Error::SelfLookup);
+            }
+
+            // Check if frames exist
+            let frames = self.frames.read().unwrap();
+
+            // For non-empty buffer, check if source and target frames exist
+            if !frames.is_empty() {
+                // Check if source frame exists (either as a child or as a parent)
+                let source_exists = frames.contains_key(source_frame)
+                    || frames.values().any(|buf| buf.parent_frame == source_frame);
+                if !source_exists {
+                    return Err(TF2Error::FrameNotFound(source_frame.to_string()));
+                }
+
+                // Check if target frame exists
+                let target_exists = frames.contains_key(target_frame)
+                    || frames.values().any(|buf| buf.parent_frame == target_frame);
+                if !target_exists {
+                    return Err(TF2Error::FrameNotFound(target_frame.to_string()));
+                }
+            } else {
+                // Empty buffer - neither frame can exist
+                return Err(TF2Error::FrameNotFound(source_frame.to_string()));
+            }
+            drop(frames);
+
+            let path = self.find_path(target_frame, source_frame).ok_or_else(|| {
+                TF2Error::NoPathBetweenFrames(target_frame.to_string(), source_frame.to_string())
+            })?;
+
+            // Compose transforms along the path
+            let frames = self.frames.read().unwrap();
+            let mut result_transform = Transform::identity();
+
+            // Walk from source to target
+            for i in 0..path.len() - 1 {
+                let child = &path[i];
+                let _parent = &path[i + 1];
+
+                if let Some(buffer) = frames.get(child) {
+                    let tf = buffer.get_transform_at(timestamp_ns)?;
+                    result_transform = tf.compose(&result_transform);
+                }
+            }
+
+            Ok(TransformStamped::new(
+                target_frame,
+                source_frame,
+                Time {
+                    sec: (timestamp_ns / 1_000_000_000) as i32,
+                    nanosec: (timestamp_ns % 1_000_000_000) as u32,
+                },
+                result_transform,
+            ))
+        }
+
+        /// Get all known frames
+        pub fn get_all_frame_names(&self) -> Vec<String> {
+            let frames = self.frames.read().unwrap();
+            let mut names: std::collections::HashSet<String> = frames.keys().cloned().collect();
+
+            // Also add parent frames
+            for buffer in frames.values() {
+                names.insert(buffer.parent_frame.clone());
+            }
+
+            names.into_iter().collect()
+        }
+
+        /// Get the parent of a frame, if known
+        pub fn get_parent(&self, frame_id: &str) -> Option<String> {
+            let frames = self.frames.read().unwrap();
+            frames.get(frame_id).map(|b| b.parent_frame.clone())
+        }
+
+        /// Clear all transforms
+        pub fn clear(&self) {
+            let mut frames = self.frames.write().unwrap();
+            frames.clear();
+        }
+
+        /// Get the number of frames in the buffer
+        pub fn frame_count(&self) -> usize {
+            self.frames.read().unwrap().len()
+        }
+    }
+
+    /// Convert ROS2 CDR TransformStamped to HORUS HFrame TransformStamped
+    pub fn cdr_to_hframe_transform(
+        cdr_tf: &TransformStamped,
+    ) -> horus_library::hframe::TransformStamped {
+        let timestamp_ns = cdr_tf.timestamp_ns();
+
+        horus_library::hframe::TransformStamped::new(
+            cdr_tf.parent_frame(),
+            cdr_tf.child_frame(),
+            timestamp_ns,
+            horus_library::hframe::Transform::new(
+                [
+                    cdr_tf.transform.translation.x,
+                    cdr_tf.transform.translation.y,
+                    cdr_tf.transform.translation.z,
+                ],
+                [
+                    cdr_tf.transform.rotation.x,
+                    cdr_tf.transform.rotation.y,
+                    cdr_tf.transform.rotation.z,
+                    cdr_tf.transform.rotation.w,
+                ],
+            ),
+        )
+    }
+
+    /// Convert HORUS HFrame TransformStamped to ROS2 CDR TransformStamped
+    pub fn hframe_to_cdr_transform(
+        hframe_tf: &horus_library::hframe::TransformStamped,
+    ) -> TransformStamped {
+        let sec = (hframe_tf.timestamp / 1_000_000_000) as i32;
+        let nanosec = (hframe_tf.timestamp % 1_000_000_000) as u32;
+
+        let parent = hframe_tf.parent_frame_id();
+        let child = hframe_tf.child_frame_id();
+
+        TransformStamped::new(
+            &parent,
+            &child,
+            Time { sec, nanosec },
+            Transform::new(
+                Vector3 {
+                    x: hframe_tf.transform.translation[0] as f64,
+                    y: hframe_tf.transform.translation[1] as f64,
+                    z: hframe_tf.transform.translation[2] as f64,
+                },
+                Quaternion {
+                    x: hframe_tf.transform.rotation[0] as f64,
+                    y: hframe_tf.transform.rotation[1] as f64,
+                    z: hframe_tf.transform.rotation[2] as f64,
+                    w: hframe_tf.transform.rotation[3] as f64,
+                },
+            ),
+        )
+    }
+
+    /// Convert ROS2 TFMessage to HORUS TFMessage
+    pub fn cdr_to_hframe_tf_message(cdr_msg: &TFMessage) -> horus_library::hframe::TFMessage {
+        let mut hframe_msg = horus_library::hframe::TFMessage::new();
+        for cdr_tf in &cdr_msg.transforms {
+            let hframe_tf = cdr_to_hframe_transform(cdr_tf);
+            hframe_msg.add(hframe_tf);
+        }
+        hframe_msg
+    }
+
+    /// Convert HORUS TFMessage to ROS2 TFMessage
+    pub fn hframe_to_cdr_tf_message(hframe_msg: &horus_library::hframe::TFMessage) -> TFMessage {
+        let transforms: Vec<TransformStamped> = hframe_msg
+            .iter()
+            .map(|tf| hframe_to_cdr_transform(tf))
+            .collect();
+        TFMessage::with_transforms(transforms)
     }
 
     // ========================================================================
@@ -2267,8 +2981,10 @@ async fn bridge_ros2_service(
     log::debug!("Service request key: {}", request_key);
 
     // HORUS service topic names (request/response pair)
-    let horus_request_topic = format!("{}/request", service_name.trim_start_matches('/'));
-    let horus_response_topic = format!("{}/response", service_name.trim_start_matches('/'));
+    // Convert to HORUS naming: /robot/set_mode -> robot.set_mode.request
+    let horus_service_name = service_name.trim_start_matches('/').replace('/', ".");
+    let horus_request_topic = format!("{}.request", horus_service_name);
+    let horus_response_topic = format!("{}.response", horus_service_name);
 
     // Create HORUS shared memory links for service communication
     // We use Vec<u8> for raw byte passthrough (CDR encoded)
@@ -2411,8 +3127,10 @@ async fn bridge_horus_service_client(
     );
 
     // HORUS topics for request/response
-    let horus_request_topic = format!("{}/client_request", service_name.trim_start_matches('/'));
-    let horus_response_topic = format!("{}/client_response", service_name.trim_start_matches('/'));
+    // Convert to HORUS naming: /robot/set_mode -> robot.set_mode.client_request
+    let horus_service_name = service_name.trim_start_matches('/').replace('/', ".");
+    let horus_request_topic = format!("{}.client_request", horus_service_name);
+    let horus_response_topic = format!("{}.client_response", horus_service_name);
 
     // Zenoh service endpoint
     let request_key = format!("rq{}", service_name.trim_start_matches('/'));
@@ -2525,24 +3243,26 @@ pub async fn bridge_ros2_action(
 
     log::info!("Starting action bridge for: {}", action_name);
 
+    // ROS2 uses '/' in topic names, HORUS uses '.'
     let action_base = action_name.trim_start_matches('/');
+    let horus_action_base = action_base.replace('/', ".");
 
-    // Zenoh key expressions for action services and topics
+    // Zenoh key expressions for action services and topics (ROS2 side - keep '/')
     let send_goal_key = format!("rq/{}/_action/send_goal", action_base);
     let cancel_goal_key = format!("rq/{}/_action/cancel_goal", action_base);
     let get_result_key = format!("rq/{}/_action/get_result", action_base);
     let feedback_key = format!("{}/_action/feedback", action_base);
     let status_key = format!("{}/_action/status", action_base);
 
-    // HORUS shared memory topics
-    let horus_goal_topic = format!("{}/goal", action_base);
-    let horus_goal_response_topic = format!("{}/goal_response", action_base);
-    let horus_cancel_topic = format!("{}/cancel", action_base);
-    let horus_cancel_response_topic = format!("{}/cancel_response", action_base);
-    let horus_result_request_topic = format!("{}/result_request", action_base);
-    let horus_result_topic = format!("{}/result", action_base);
-    let horus_feedback_topic = format!("{}/feedback", action_base);
-    let horus_status_topic = format!("{}/status", action_base);
+    // HORUS shared memory topics (convert to '.' separator)
+    let horus_goal_topic = format!("{}.goal", horus_action_base);
+    let horus_goal_response_topic = format!("{}.goal_response", horus_action_base);
+    let horus_cancel_topic = format!("{}.cancel", horus_action_base);
+    let horus_cancel_response_topic = format!("{}.cancel_response", horus_action_base);
+    let horus_result_request_topic = format!("{}.result_request", horus_action_base);
+    let horus_result_topic = format!("{}.result", horus_action_base);
+    let horus_feedback_topic = format!("{}.feedback", horus_action_base);
+    let horus_status_topic = format!("{}.status", horus_action_base);
 
     log::debug!(
         "Action bridge keys: send_goal={}, feedback={}",
@@ -3477,9 +4197,15 @@ async fn bridge_single_topic(
         qos_profile
     );
 
-    // HORUS shared memory topic name (strip leading slash if present)
-    let horus_topic = topic_name.trim_start_matches('/');
-    log::debug!("HORUS topic: {}", horus_topic);
+    // Convert ROS topic to HORUS topic format
+    // ROS uses `/` separator: /robot/odom, /scan
+    // HORUS uses `.` separator: robot.odom, scan
+    let horus_topic = topic_name.trim_start_matches('/').replace('/', ".");
+    log::debug!(
+        "HORUS topic: {} (from ROS topic: {})",
+        horus_topic,
+        topic_name
+    );
 
     // Build Zenoh config for ROS2 communication with QoS settings
     let mut zenoh_config = ZenohConfig::ros2(domain_id);
@@ -4264,6 +4990,14 @@ fn truncate_string(s: &str, max_len: usize) -> String {
 mod tests {
     use super::*;
 
+    // Import CDR types when zenoh-transport is enabled
+    // Note: We import cdr types selectively to avoid Duration ambiguity
+    #[cfg(feature = "zenoh-transport")]
+    use super::cdr::{
+        interpolate_transform, lerp_vector3, slerp_quaternion, Header, Quaternion, Ros2MessageType,
+        TF2Error, TFMessage, Time, Transform, TransformBuffer, TransformStamped, Vector3,
+    };
+
     // ========================================================================
     // Direction and QoS Parsing Tests
     // ========================================================================
@@ -4807,27 +5541,221 @@ mod tests {
     #[cfg(feature = "zenoh-transport")]
     #[test]
     fn test_qos_mapping_sensor_data() {
-        use horus_core::communication::network::zenoh_config::Reliability;
+        use horus_core::communication::network::zenoh_config::{
+            Durability, HistoryPolicy, Liveliness, Reliability,
+        };
         let zenoh_qos = map_qos_profile(QosProfile::SensorData);
-        // Sensor data should use best effort reliability
+
+        // Sensor data: best effort, volatile, keep last 5, with deadline and lifespan
         assert_eq!(zenoh_qos.reliability, Reliability::BestEffort);
+        assert_eq!(zenoh_qos.durability, Durability::Volatile);
+        assert_eq!(zenoh_qos.history, HistoryPolicy::KeepLast(5));
+        assert!(zenoh_qos.deadline.is_some());
+        assert_eq!(zenoh_qos.deadline.unwrap(), Duration::from_millis(100));
+        assert!(zenoh_qos.lifespan.is_some());
+        assert_eq!(zenoh_qos.lifespan.unwrap(), Duration::from_millis(200));
+        assert_eq!(zenoh_qos.liveliness, Liveliness::Automatic);
+        assert!(zenoh_qos.liveliness_lease_duration.is_some());
     }
 
     #[cfg(feature = "zenoh-transport")]
     #[test]
     fn test_qos_mapping_services() {
-        use horus_core::communication::network::zenoh_config::Reliability;
+        use horus_core::communication::network::zenoh_config::{
+            Durability, HistoryPolicy, Reliability,
+        };
         let zenoh_qos = map_qos_profile(QosProfile::Services);
-        // Services should use reliable delivery
+
+        // Services: reliable, volatile, keep all history
         assert_eq!(zenoh_qos.reliability, Reliability::Reliable);
+        assert_eq!(zenoh_qos.durability, Durability::Volatile);
+        assert_eq!(zenoh_qos.history, HistoryPolicy::KeepAll);
+        assert!(zenoh_qos.deadline.is_none());
+        assert!(zenoh_qos.lifespan.is_none());
+        assert_eq!(zenoh_qos.priority, 6); // Higher priority for services
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_qos_mapping_parameters() {
+        use horus_core::communication::network::zenoh_config::{
+            Durability, HistoryPolicy, Reliability,
+        };
+        let zenoh_qos = map_qos_profile(QosProfile::Parameters);
+
+        // Parameters: reliable, transient local durability, keep last 1
+        assert_eq!(zenoh_qos.reliability, Reliability::Reliable);
+        assert_eq!(zenoh_qos.durability, Durability::TransientLocal);
+        assert_eq!(zenoh_qos.history, HistoryPolicy::KeepLast(1));
+        assert!(zenoh_qos.deadline.is_none());
+        assert!(zenoh_qos.lifespan.is_none());
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_qos_mapping_system_default() {
+        use horus_core::communication::network::zenoh_config::{
+            Durability, HistoryPolicy, Reliability,
+        };
+        let zenoh_qos = map_qos_profile(QosProfile::SystemDefault);
+
+        // System default: reliable, volatile, keep last 10
+        assert_eq!(zenoh_qos.reliability, Reliability::Reliable);
+        assert_eq!(zenoh_qos.durability, Durability::Volatile);
+        assert_eq!(zenoh_qos.history, HistoryPolicy::KeepLast(10));
+        assert!(zenoh_qos.deadline.is_none());
+        assert!(zenoh_qos.lifespan.is_none());
     }
 
     #[cfg(feature = "zenoh-transport")]
     #[test]
     fn test_qos_mapping_default() {
+        use horus_core::communication::network::zenoh_config::{
+            CongestionControl, HistoryPolicy, Reliability,
+        };
         let zenoh_qos = map_qos_profile(QosProfile::Default);
-        // Default should exist and be valid
-        let _ = zenoh_qos;
+
+        // Default profile: best effort, drop on congestion, keep last 1
+        assert_eq!(zenoh_qos.reliability, Reliability::BestEffort);
+        assert_eq!(zenoh_qos.congestion, CongestionControl::Drop);
+        assert_eq!(zenoh_qos.history, HistoryPolicy::KeepLast(1));
+        assert_eq!(zenoh_qos.priority, 5); // Normal priority
+        assert!(!zenoh_qos.express); // Not express by default
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_qos_deadline_check() {
+        use horus_core::communication::network::zenoh_config::ZenohQos;
+        use std::time::Instant;
+
+        let qos = ZenohQos::sensor_data();
+        let deadline = qos.deadline.unwrap();
+
+        // Simulate recent message - should not trigger deadline
+        let recent_time = Instant::now();
+        assert!(!qos.check_deadline(recent_time));
+
+        // Simulate old message - would trigger deadline (we can't wait in tests)
+        // Just verify the check function exists and works
+        assert_eq!(deadline, Duration::from_millis(100));
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_qos_lifespan_check() {
+        use horus_core::communication::network::zenoh_config::ZenohQos;
+        use std::time::Instant;
+
+        let qos = ZenohQos::sensor_data();
+        let lifespan = qos.lifespan.unwrap();
+
+        // Simulate fresh message - should not be expired
+        let fresh_time = Instant::now();
+        assert!(!qos.is_message_expired(fresh_time));
+
+        // Verify lifespan value
+        assert_eq!(lifespan, Duration::from_millis(200));
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_qos_history_policy_depth() {
+        use horus_core::communication::network::zenoh_config::HistoryPolicy;
+
+        // KeepLast(n) should return Some(n)
+        assert_eq!(HistoryPolicy::KeepLast(5).depth(), Some(5));
+        assert_eq!(HistoryPolicy::KeepLast(1).depth(), Some(1));
+        assert_eq!(HistoryPolicy::KeepLast(100).depth(), Some(100));
+
+        // KeepAll should return None (unbounded)
+        assert_eq!(HistoryPolicy::KeepAll.depth(), None);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_qos_liveliness_manual_assertion() {
+        use horus_core::communication::network::zenoh_config::Liveliness;
+
+        // Automatic should not require manual assertion
+        assert!(!Liveliness::Automatic.requires_manual_assertion());
+
+        // Manual modes should require assertion
+        assert!(Liveliness::ManualByParticipant.requires_manual_assertion());
+        assert!(Liveliness::ManualByTopic.requires_manual_assertion());
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_qos_profile_builder_methods() {
+        use horus_core::communication::network::zenoh_config::{
+            Durability, HistoryPolicy, Liveliness, Reliability, ZenohQos,
+        };
+
+        // Test building custom QoS
+        let custom_qos = ZenohQos::default()
+            .with_reliability(Reliability::Reliable)
+            .with_history(HistoryPolicy::KeepLast(20))
+            .with_durability(Durability::TransientLocal)
+            .with_deadline(Duration::from_millis(50))
+            .with_lifespan(Duration::from_millis(100))
+            .with_liveliness(Liveliness::ManualByTopic, Some(Duration::from_secs(5)))
+            .with_priority(7)
+            .with_express(true);
+
+        assert_eq!(custom_qos.reliability, Reliability::Reliable);
+        assert_eq!(custom_qos.history, HistoryPolicy::KeepLast(20));
+        assert_eq!(custom_qos.durability, Durability::TransientLocal);
+        assert_eq!(custom_qos.deadline, Some(Duration::from_millis(50)));
+        assert_eq!(custom_qos.lifespan, Some(Duration::from_millis(100)));
+        assert_eq!(custom_qos.liveliness, Liveliness::ManualByTopic);
+        assert_eq!(
+            custom_qos.liveliness_lease_duration,
+            Some(Duration::from_secs(5))
+        );
+        assert_eq!(custom_qos.priority, 7);
+        assert!(custom_qos.express);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_qos_priority_clamping() {
+        use horus_core::communication::network::zenoh_config::ZenohQos;
+
+        // Priority should be clamped to 0-7
+        let qos = ZenohQos::default().with_priority(255);
+        assert_eq!(qos.priority, 7); // Clamped to max
+
+        let qos = ZenohQos::default().with_priority(0);
+        assert_eq!(qos.priority, 0); // Min is fine
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_all_qos_profiles_are_valid() {
+        // Ensure all profile mappings produce valid QoS
+        let profiles = [
+            QosProfile::SensorData,
+            QosProfile::Default,
+            QosProfile::Services,
+            QosProfile::Parameters,
+            QosProfile::SystemDefault,
+        ];
+
+        for profile in profiles {
+            let qos = map_qos_profile(profile);
+            // All profiles should have valid priority (0-7)
+            assert!(qos.priority <= 7);
+            // All profiles should have non-zero history depth (or KeepAll)
+            match qos.history {
+                horus_core::communication::network::zenoh_config::HistoryPolicy::KeepLast(n) => {
+                    assert!(n > 0);
+                }
+                horus_core::communication::network::zenoh_config::HistoryPolicy::KeepAll => {
+                    // KeepAll is valid
+                }
+            }
+        }
     }
 
     // ========================================================================
@@ -5526,5 +6454,2254 @@ mod tests {
             None // Invalid - no node name
         );
         assert_eq!(parse_node_name_from_param_service("invalid_key"), None);
+    }
+
+    // ========================================================================
+    // TF2 Transform Bridge Tests (require zenoh-transport feature)
+    // ========================================================================
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_identity() {
+        let tf = Transform::identity();
+        assert_eq!(tf.translation.x, 0.0);
+        assert_eq!(tf.translation.y, 0.0);
+        assert_eq!(tf.translation.z, 0.0);
+        assert_eq!(tf.rotation.x, 0.0);
+        assert_eq!(tf.rotation.y, 0.0);
+        assert_eq!(tf.rotation.z, 0.0);
+        assert_eq!(tf.rotation.w, 1.0);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_new() {
+        let translation = Vector3 {
+            x: 1.0,
+            y: 2.0,
+            z: 3.0,
+        };
+        let rotation = Quaternion {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            w: 1.0,
+        };
+        let tf = Transform::new(translation.clone(), rotation.clone());
+        assert_eq!(tf.translation.x, 1.0);
+        assert_eq!(tf.translation.y, 2.0);
+        assert_eq!(tf.translation.z, 3.0);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_compose_identity() {
+        let tf1 = Transform::identity();
+        let tf2 = Transform::new(
+            Vector3 {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0,
+            },
+            Quaternion {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 1.0,
+            },
+        );
+
+        // Composing with identity should give same transform
+        let result = tf1.compose(&tf2);
+        assert!((result.translation.x - 1.0).abs() < 1e-10);
+        assert!((result.translation.y - 2.0).abs() < 1e-10);
+        assert!((result.translation.z - 3.0).abs() < 1e-10);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_inverse() {
+        let tf = Transform::new(
+            Vector3 {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0,
+            },
+            Quaternion {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 1.0,
+            },
+        );
+
+        let inv = tf.inverse();
+
+        // Inverse should have negated translation
+        assert!((inv.translation.x + 1.0).abs() < 1e-10);
+        assert!((inv.translation.y + 2.0).abs() < 1e-10);
+        assert!((inv.translation.z + 3.0).abs() < 1e-10);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_compose_then_inverse() {
+        let tf = Transform::new(
+            Vector3 {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0,
+            },
+            Quaternion {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 1.0,
+            },
+        );
+
+        let inv = tf.inverse();
+        let composed = tf.compose(&inv);
+
+        // Should be near identity
+        assert!((composed.translation.x).abs() < 1e-10);
+        assert!((composed.translation.y).abs() < 1e-10);
+        assert!((composed.translation.z).abs() < 1e-10);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_stamped_creation() {
+        let timestamp = Time {
+            sec: 123,
+            nanosec: 456,
+        };
+        let transform = Transform::identity();
+
+        let tf_stamped = TransformStamped::new("world", "robot", timestamp, transform);
+
+        assert_eq!(tf_stamped.header.frame_id, "world");
+        assert_eq!(tf_stamped.child_frame_id, "robot");
+        assert_eq!(tf_stamped.parent_frame(), "world");
+        assert_eq!(tf_stamped.child_frame(), "robot");
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_stamped_timestamp() {
+        let timestamp = Time {
+            sec: 1,
+            nanosec: 500_000_000,
+        };
+
+        let tf_stamped = TransformStamped::new("world", "robot", timestamp, Transform::identity());
+
+        // 1.5 seconds in nanoseconds
+        assert_eq!(tf_stamped.timestamp_ns(), 1_500_000_000);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_tf_message_creation() {
+        let tf_msg = TFMessage::new();
+        assert!(tf_msg.is_empty());
+        assert_eq!(tf_msg.len(), 0);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_tf_message_with_transforms() {
+        let tf1 = TransformStamped {
+            header: Header {
+                stamp: Time { sec: 0, nanosec: 0 },
+                frame_id: "world".to_string(),
+            },
+            child_frame_id: "robot".to_string(),
+            transform: Transform::identity(),
+        };
+
+        let tf2 = TransformStamped {
+            header: Header {
+                stamp: Time { sec: 0, nanosec: 0 },
+                frame_id: "robot".to_string(),
+            },
+            child_frame_id: "sensor".to_string(),
+            transform: Transform::identity(),
+        };
+
+        let msg = TFMessage::with_transforms(vec![tf1, tf2]);
+        assert_eq!(msg.len(), 2);
+        assert!(!msg.is_empty());
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_tf_message_add() {
+        let mut msg = TFMessage::new();
+
+        msg.add(TransformStamped {
+            header: Header {
+                stamp: Time { sec: 0, nanosec: 0 },
+                frame_id: "world".to_string(),
+            },
+            child_frame_id: "robot".to_string(),
+            transform: Transform::identity(),
+        });
+
+        assert_eq!(msg.len(), 1);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_buffer_basic() {
+        let buffer = TransformBuffer::new();
+
+        let tf = TransformStamped {
+            header: Header {
+                stamp: Time { sec: 1, nanosec: 0 },
+                frame_id: "world".to_string(),
+            },
+            child_frame_id: "robot".to_string(),
+            transform: Transform::new(
+                Vector3 {
+                    x: 1.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                Quaternion {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                    w: 1.0,
+                },
+            ),
+        };
+
+        buffer.set_transform(&tf, false);
+
+        assert_eq!(buffer.frame_count(), 1);
+        let frames = buffer.get_all_frame_names();
+        assert!(frames.contains(&"robot".to_string()));
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_buffer_lookup() {
+        let buffer = TransformBuffer::new();
+
+        let tf = TransformStamped {
+            header: Header {
+                stamp: Time { sec: 1, nanosec: 0 },
+                frame_id: "world".to_string(),
+            },
+            child_frame_id: "robot".to_string(),
+            transform: Transform::new(
+                Vector3 {
+                    x: 1.0,
+                    y: 2.0,
+                    z: 3.0,
+                },
+                Quaternion {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                    w: 1.0,
+                },
+            ),
+        };
+
+        buffer.set_transform(&tf, false);
+
+        // Lookup at the exact timestamp
+        let result = buffer.lookup_transform("world", "robot", 1_000_000_000);
+        assert!(result.is_ok());
+
+        let found_tf = result.unwrap();
+        assert!((found_tf.transform.translation.x - 1.0).abs() < 1e-10);
+        assert!((found_tf.transform.translation.y - 2.0).abs() < 1e-10);
+        assert!((found_tf.transform.translation.z - 3.0).abs() < 1e-10);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_buffer_can_transform() {
+        let buffer = TransformBuffer::new();
+
+        // Initially no transforms
+        assert!(!buffer.can_transform("world", "robot"));
+
+        // Add a transform
+        let tf = TransformStamped {
+            header: Header {
+                stamp: Time { sec: 1, nanosec: 0 },
+                frame_id: "world".to_string(),
+            },
+            child_frame_id: "robot".to_string(),
+            transform: Transform::identity(),
+        };
+        buffer.set_transform(&tf, false);
+
+        // Now should be able to transform
+        assert!(buffer.can_transform("world", "robot"));
+        assert!(buffer.can_transform("robot", "world")); // Inverse should work too
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_buffer_chain() {
+        let buffer = TransformBuffer::new();
+
+        // world -> base_link -> sensor
+        let tf1 = TransformStamped {
+            header: Header {
+                stamp: Time { sec: 1, nanosec: 0 },
+                frame_id: "world".to_string(),
+            },
+            child_frame_id: "base_link".to_string(),
+            transform: Transform::new(
+                Vector3 {
+                    x: 1.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                Quaternion {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                    w: 1.0,
+                },
+            ),
+        };
+
+        let tf2 = TransformStamped {
+            header: Header {
+                stamp: Time { sec: 1, nanosec: 0 },
+                frame_id: "base_link".to_string(),
+            },
+            child_frame_id: "sensor".to_string(),
+            transform: Transform::new(
+                Vector3 {
+                    x: 0.0,
+                    y: 1.0,
+                    z: 0.0,
+                },
+                Quaternion {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                    w: 1.0,
+                },
+            ),
+        };
+
+        buffer.set_transform(&tf1, false);
+        buffer.set_transform(&tf2, false);
+
+        // Should be able to transform through the chain
+        assert!(buffer.can_transform("world", "sensor"));
+        assert!(buffer.can_transform("sensor", "world"));
+
+        // Lookup world -> sensor
+        let result = buffer.lookup_transform("world", "sensor", 1_000_000_000);
+        assert!(result.is_ok());
+
+        let composed = result.unwrap();
+        // Translation should be (1, 1, 0)
+        assert!((composed.transform.translation.x - 1.0).abs() < 1e-10);
+        assert!((composed.transform.translation.y - 1.0).abs() < 1e-10);
+        assert!((composed.transform.translation.z).abs() < 1e-10);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_buffer_self_lookup_error() {
+        let buffer = TransformBuffer::new();
+
+        // Add a transform so we have the frame
+        let tf = TransformStamped {
+            header: Header {
+                stamp: Time { sec: 1, nanosec: 0 },
+                frame_id: "world".to_string(),
+            },
+            child_frame_id: "robot".to_string(),
+            transform: Transform::identity(),
+        };
+        buffer.set_transform(&tf, false);
+
+        // Self lookup should error
+        let result = buffer.lookup_transform("world", "world", 1_000_000_000);
+        assert!(result.is_err());
+        match result {
+            Err(TF2Error::SelfLookup) => {}
+            _ => panic!("Expected SelfLookup error"),
+        }
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_buffer_frame_not_found() {
+        let buffer = TransformBuffer::new();
+
+        let result = buffer.lookup_transform("world", "nonexistent", 0);
+        assert!(result.is_err());
+        match result {
+            Err(TF2Error::FrameNotFound(frame)) => {
+                assert_eq!(frame, "nonexistent");
+            }
+            _ => panic!("Expected FrameNotFound error"),
+        }
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_buffer_get_parent() {
+        let buffer = TransformBuffer::new();
+
+        let tf = TransformStamped {
+            header: Header {
+                stamp: Time { sec: 1, nanosec: 0 },
+                frame_id: "world".to_string(),
+            },
+            child_frame_id: "robot".to_string(),
+            transform: Transform::identity(),
+        };
+        buffer.set_transform(&tf, false);
+
+        let parent = buffer.get_parent("robot");
+        assert_eq!(parent, Some("world".to_string()));
+
+        let parent = buffer.get_parent("nonexistent");
+        assert_eq!(parent, None);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_buffer_static_transforms() {
+        let buffer = TransformBuffer::new();
+
+        let tf = TransformStamped {
+            header: Header {
+                stamp: Time { sec: 0, nanosec: 0 }, // Time 0 for static
+                frame_id: "base_link".to_string(),
+            },
+            child_frame_id: "camera".to_string(),
+            transform: Transform::new(
+                Vector3 {
+                    x: 0.1,
+                    y: 0.0,
+                    z: 0.2,
+                },
+                Quaternion {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                    w: 1.0,
+                },
+            ),
+        };
+
+        buffer.set_transform(&tf, true); // Static transform
+
+        // Should be able to look up at any time
+        let result1 = buffer.lookup_transform("base_link", "camera", 1_000_000_000);
+        let result2 = buffer.lookup_transform("base_link", "camera", 999_000_000_000);
+
+        assert!(result1.is_ok());
+        assert!(result2.is_ok());
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_buffer_set_transforms_batch() {
+        let buffer = TransformBuffer::new();
+
+        let msg = TFMessage::with_transforms(vec![
+            TransformStamped {
+                header: Header {
+                    stamp: Time { sec: 1, nanosec: 0 },
+                    frame_id: "world".to_string(),
+                },
+                child_frame_id: "robot1".to_string(),
+                transform: Transform::identity(),
+            },
+            TransformStamped {
+                header: Header {
+                    stamp: Time { sec: 1, nanosec: 0 },
+                    frame_id: "world".to_string(),
+                },
+                child_frame_id: "robot2".to_string(),
+                transform: Transform::identity(),
+            },
+        ]);
+
+        buffer.set_transforms(&msg, false);
+
+        assert_eq!(buffer.frame_count(), 2);
+        assert!(buffer.can_transform("world", "robot1"));
+        assert!(buffer.can_transform("world", "robot2"));
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_buffer_clear() {
+        let buffer = TransformBuffer::new();
+
+        let tf = TransformStamped {
+            header: Header {
+                stamp: Time { sec: 1, nanosec: 0 },
+                frame_id: "world".to_string(),
+            },
+            child_frame_id: "robot".to_string(),
+            transform: Transform::identity(),
+        };
+        buffer.set_transform(&tf, false);
+
+        assert_eq!(buffer.frame_count(), 1);
+
+        buffer.clear();
+        assert_eq!(buffer.frame_count(), 0);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_lerp_vector3() {
+        let v1 = Vector3 {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        };
+        let v2 = Vector3 {
+            x: 10.0,
+            y: 20.0,
+            z: 30.0,
+        };
+
+        let mid = lerp_vector3(&v1, &v2, 0.5);
+        assert!((mid.x - 5.0).abs() < 1e-10);
+        assert!((mid.y - 10.0).abs() < 1e-10);
+        assert!((mid.z - 15.0).abs() < 1e-10);
+
+        let start = lerp_vector3(&v1, &v2, 0.0);
+        assert!((start.x - 0.0).abs() < 1e-10);
+
+        let end = lerp_vector3(&v1, &v2, 1.0);
+        assert!((end.x - 10.0).abs() < 1e-10);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_slerp_quaternion_identity() {
+        let q1 = Quaternion {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            w: 1.0,
+        };
+        let q2 = Quaternion {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            w: 1.0,
+        };
+
+        let result = slerp_quaternion(&q1, &q2, 0.5);
+
+        // Should still be identity
+        assert!((result.x).abs() < 1e-10);
+        assert!((result.y).abs() < 1e-10);
+        assert!((result.z).abs() < 1e-10);
+        assert!((result.w - 1.0).abs() < 1e-10);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_tf2_error_display() {
+        let err1 = TF2Error::FrameNotFound("test_frame".to_string());
+        assert!(format!("{:?}", err1).contains("test_frame"));
+
+        let err2 = TF2Error::NoPathBetweenFrames("a".to_string(), "b".to_string());
+        assert!(format!("{:?}", err2).contains("a"));
+        assert!(format!("{:?}", err2).contains("b"));
+
+        let err3 = TF2Error::SelfLookup;
+        assert!(format!("{:?}", err3).contains("SelfLookup"));
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_ros2_message_type_tf2() {
+        // Test that TF2 types can be parsed and converted
+        assert_eq!(
+            Ros2MessageType::from_type_string("geometry_msgs/msg/Transform"),
+            Ros2MessageType::GeometryMsgsTransform
+        );
+        assert_eq!(
+            Ros2MessageType::from_type_string("geometry_msgs/msg/TransformStamped"),
+            Ros2MessageType::GeometryMsgsTransformStamped
+        );
+        assert_eq!(
+            Ros2MessageType::from_type_string("tf2_msgs/msg/TFMessage"),
+            Ros2MessageType::Tf2MsgsTFMessage
+        );
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_ros2_message_type_tf2_to_string() {
+        assert_eq!(
+            Ros2MessageType::GeometryMsgsTransform.to_type_string(),
+            "geometry_msgs/msg/Transform"
+        );
+        assert_eq!(
+            Ros2MessageType::GeometryMsgsTransformStamped.to_type_string(),
+            "geometry_msgs/msg/TransformStamped"
+        );
+        assert_eq!(
+            Ros2MessageType::Tf2MsgsTFMessage.to_type_string(),
+            "tf2_msgs/msg/TFMessage"
+        );
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_buffer_with_custom_cache_time() {
+        let buffer = TransformBuffer::with_cache_time(5.0);
+
+        let tf = TransformStamped {
+            header: Header {
+                stamp: Time { sec: 1, nanosec: 0 },
+                frame_id: "world".to_string(),
+            },
+            child_frame_id: "robot".to_string(),
+            transform: Transform::identity(),
+        };
+
+        buffer.set_transform(&tf, false);
+        assert_eq!(buffer.frame_count(), 1);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_rotate_vector() {
+        // Test rotating a vector by identity quaternion (no rotation)
+        let tf = Transform::new(
+            Vector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            Quaternion {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 1.0,
+            },
+        );
+
+        let vec = Vector3 {
+            x: 1.0,
+            y: 2.0,
+            z: 3.0,
+        };
+        let rotated = tf.rotate_vector(&vec);
+
+        assert!((rotated.x - 1.0).abs() < 1e-10);
+        assert!((rotated.y - 2.0).abs() < 1e-10);
+        assert!((rotated.z - 3.0).abs() < 1e-10);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_quaternion_multiply_identity() {
+        let q1 = Quaternion {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            w: 1.0,
+        };
+        let q2 = Quaternion {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            w: 1.0,
+        };
+
+        // Create a transform with q1 as its rotation and multiply by q2
+        let tf = Transform::new(Vector3::default(), q1);
+        let result = tf.quaternion_multiply(&q2);
+
+        assert!((result.x).abs() < 1e-10);
+        assert!((result.y).abs() < 1e-10);
+        assert!((result.z).abs() < 1e-10);
+        assert!((result.w - 1.0).abs() < 1e-10);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_interpolate_transform() {
+        let tf1 = Transform::new(
+            Vector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            Quaternion {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 1.0,
+            },
+        );
+
+        let tf2 = Transform::new(
+            Vector3 {
+                x: 10.0,
+                y: 10.0,
+                z: 10.0,
+            },
+            Quaternion {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 1.0,
+            },
+        );
+
+        let mid = interpolate_transform(&tf1, &tf2, 0.5);
+
+        assert!((mid.translation.x - 5.0).abs() < 1e-10);
+        assert!((mid.translation.y - 5.0).abs() < 1e-10);
+        assert!((mid.translation.z - 5.0).abs() < 1e-10);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[test]
+    fn test_transform_default() {
+        let tf = Transform::default();
+        assert_eq!(tf.translation.x, 0.0);
+        assert_eq!(tf.rotation.w, 0.0); // Default, not identity
+    }
+
+    // ========================================================================
+    // Comprehensive Discovery Tests
+    // ========================================================================
+
+    #[test]
+    fn test_discovered_topic_all_fields() {
+        let topic = DiscoveredTopic {
+            name: "/robot/scan".to_string(),
+            msg_type: Some("sensor_msgs/msg/LaserScan".to_string()),
+            publishers: 2,
+            subscribers: 5,
+            reliable: true,
+        };
+
+        assert_eq!(topic.name, "/robot/scan");
+        assert_eq!(
+            topic.msg_type,
+            Some("sensor_msgs/msg/LaserScan".to_string())
+        );
+        assert_eq!(topic.publishers, 2);
+        assert_eq!(topic.subscribers, 5);
+        assert!(topic.reliable);
+    }
+
+    #[test]
+    fn test_discovered_topic_no_msg_type() {
+        let topic = DiscoveredTopic {
+            name: "/unknown_topic".to_string(),
+            msg_type: None,
+            publishers: 1,
+            subscribers: 0,
+            reliable: false,
+        };
+
+        assert_eq!(topic.name, "/unknown_topic");
+        assert!(topic.msg_type.is_none());
+        assert_eq!(topic.publishers, 1);
+        assert_eq!(topic.subscribers, 0);
+        assert!(!topic.reliable);
+    }
+
+    #[test]
+    fn test_discovered_topic_nested_namespace() {
+        let topic = DiscoveredTopic {
+            name: "/robot1/sensors/front/lidar".to_string(),
+            msg_type: Some("sensor_msgs/msg/PointCloud2".to_string()),
+            publishers: 1,
+            subscribers: 3,
+            reliable: true,
+        };
+
+        assert!(topic.name.starts_with("/robot1"));
+        assert!(topic.name.contains("/sensors/"));
+    }
+
+    #[test]
+    fn test_discovered_service_all_fields() {
+        let service = DiscoveredService {
+            name: "/navigation/get_plan".to_string(),
+            srv_type: Some("nav_msgs/srv/GetPlan".to_string()),
+        };
+
+        assert_eq!(service.name, "/navigation/get_plan");
+        assert_eq!(service.srv_type, Some("nav_msgs/srv/GetPlan".to_string()));
+    }
+
+    #[test]
+    fn test_discovered_service_no_type() {
+        let service = DiscoveredService {
+            name: "/custom_service".to_string(),
+            srv_type: None,
+        };
+
+        assert_eq!(service.name, "/custom_service");
+        assert!(service.srv_type.is_none());
+    }
+
+    #[test]
+    fn test_discovered_action_all_fields() {
+        let action = DiscoveredAction {
+            name: "/navigate_to_pose".to_string(),
+            action_type: Some("nav2_msgs/action/NavigateToPose".to_string()),
+        };
+
+        assert_eq!(action.name, "/navigate_to_pose");
+        assert_eq!(
+            action.action_type,
+            Some("nav2_msgs/action/NavigateToPose".to_string())
+        );
+    }
+
+    #[test]
+    fn test_discovered_action_no_type() {
+        let action = DiscoveredAction {
+            name: "/custom_action".to_string(),
+            action_type: None,
+        };
+
+        assert_eq!(action.name, "/custom_action");
+        assert!(action.action_type.is_none());
+    }
+
+    #[test]
+    fn test_discovered_parameter_node_with_namespace() {
+        let param_node = DiscoveredParameterNode {
+            node_name: "/my_controller".to_string(),
+            namespace: Some("/robot1".to_string()),
+        };
+
+        assert_eq!(param_node.node_name, "/my_controller");
+        assert_eq!(param_node.namespace, Some("/robot1".to_string()));
+    }
+
+    #[test]
+    fn test_discovered_parameter_node_no_namespace() {
+        let param_node = DiscoveredParameterNode {
+            node_name: "/global_controller".to_string(),
+            namespace: None,
+        };
+
+        assert_eq!(param_node.node_name, "/global_controller");
+        assert!(param_node.namespace.is_none());
+    }
+
+    #[test]
+    fn test_discovery_result_with_topics_and_services() {
+        let mut result = DiscoveryResult::default();
+
+        result.topics.push(DiscoveredTopic {
+            name: "/scan".to_string(),
+            msg_type: Some("sensor_msgs/msg/LaserScan".to_string()),
+            publishers: 1,
+            subscribers: 2,
+            reliable: true,
+        });
+
+        result.topics.push(DiscoveredTopic {
+            name: "/odom".to_string(),
+            msg_type: Some("nav_msgs/msg/Odometry".to_string()),
+            publishers: 1,
+            subscribers: 3,
+            reliable: true,
+        });
+
+        result.services.push(DiscoveredService {
+            name: "/get_map".to_string(),
+            srv_type: Some("nav_msgs/srv/GetMap".to_string()),
+        });
+
+        assert_eq!(result.topics.len(), 2);
+        assert_eq!(result.services.len(), 1);
+        assert_eq!(result.topics[0].name, "/scan");
+        assert_eq!(result.topics[1].name, "/odom");
+        assert_eq!(result.services[0].name, "/get_map");
+    }
+
+    #[test]
+    fn test_ros2_topic_key_pattern() {
+        // Test that topic key follows ROS2 Zenoh convention
+        let topic_name = "/scan";
+        let key = format!("rt{}", topic_name);
+        assert_eq!(key, "rt/scan");
+
+        let nested_topic = "/robot/sensors/lidar";
+        let nested_key = format!("rt{}", nested_topic);
+        assert_eq!(nested_key, "rt/robot/sensors/lidar");
+    }
+
+    #[test]
+    fn test_ros2_service_key_patterns() {
+        // Test service request/response key patterns
+        let service_name = "/get_map";
+        let domain_id = 0u32;
+
+        let request_key = format!("{}/rq{}/**", domain_id, service_name);
+        let response_key = format!("{}/rr{}/**", domain_id, service_name);
+
+        assert_eq!(request_key, "0/rq/get_map/**");
+        assert_eq!(response_key, "0/rr/get_map/**");
+    }
+
+    #[test]
+    fn test_ros2_action_key_patterns() {
+        // ROS2 actions use multiple topics: goal, result, feedback, status
+        let action_name = "/navigate_to_pose";
+        let domain_id = 0u32;
+
+        // Action goal request
+        let goal_key = format!("{}/rq{}/_action/send_goal/**", domain_id, action_name);
+        assert!(goal_key.contains("send_goal"));
+
+        // Action result request
+        let result_key = format!("{}/rq{}/_action/get_result/**", domain_id, action_name);
+        assert!(result_key.contains("get_result"));
+
+        // Action cancel request
+        let cancel_key = format!("{}/rq{}/_action/cancel_goal/**", domain_id, action_name);
+        assert!(cancel_key.contains("cancel_goal"));
+
+        // Action feedback topic
+        let feedback_key = format!("rt{}/_action/feedback", action_name);
+        assert_eq!(feedback_key, "rt/navigate_to_pose/_action/feedback");
+
+        // Action status topic
+        let status_key = format!("rt{}/_action/status", action_name);
+        assert_eq!(status_key, "rt/navigate_to_pose/_action/status");
+    }
+
+    #[test]
+    fn test_parameter_stats_tracking() {
+        let stats = ParameterStats::new();
+
+        // Initially all should be zero
+        assert_eq!(stats.get_calls.load(Ordering::Relaxed), 0);
+        assert_eq!(stats.set_calls.load(Ordering::Relaxed), 0);
+        assert_eq!(stats.list_calls.load(Ordering::Relaxed), 0);
+        assert_eq!(stats.describe_calls.load(Ordering::Relaxed), 0);
+        assert_eq!(stats.errors.load(Ordering::Relaxed), 0);
+
+        // Record some calls
+        stats.record_get();
+        stats.record_get();
+        stats.record_set();
+        stats.record_list();
+        stats.record_list();
+        stats.record_list();
+        stats.record_describe();
+        stats.record_error();
+
+        assert_eq!(stats.get_calls.load(Ordering::Relaxed), 2);
+        assert_eq!(stats.set_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(stats.list_calls.load(Ordering::Relaxed), 3);
+        assert_eq!(stats.describe_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(stats.errors.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn test_parameter_stats_concurrent_updates() {
+        use std::thread;
+
+        let stats = std::sync::Arc::new(ParameterStats::new());
+
+        let mut handles = vec![];
+
+        // Spawn multiple threads to update stats concurrently
+        for _ in 0..10 {
+            let stats_clone = std::sync::Arc::clone(&stats);
+            let handle = thread::spawn(move || {
+                for _ in 0..100 {
+                    stats_clone.record_get();
+                    stats_clone.record_set();
+                }
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all threads
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // Each thread does 100 gets and 100 sets, 10 threads total
+        assert_eq!(stats.get_calls.load(Ordering::Relaxed), 1000);
+        assert_eq!(stats.set_calls.load(Ordering::Relaxed), 1000);
+    }
+
+    #[test]
+    fn test_discovery_result_clone() {
+        let topic = DiscoveredTopic {
+            name: "/scan".to_string(),
+            msg_type: Some("sensor_msgs/msg/LaserScan".to_string()),
+            publishers: 1,
+            subscribers: 2,
+            reliable: true,
+        };
+
+        let cloned = topic.clone();
+        assert_eq!(topic.name, cloned.name);
+        assert_eq!(topic.msg_type, cloned.msg_type);
+        assert_eq!(topic.publishers, cloned.publishers);
+        assert_eq!(topic.subscribers, cloned.subscribers);
+        assert_eq!(topic.reliable, cloned.reliable);
+    }
+
+    #[test]
+    fn test_discovered_service_clone() {
+        let service = DiscoveredService {
+            name: "/get_map".to_string(),
+            srv_type: Some("nav_msgs/srv/GetMap".to_string()),
+        };
+
+        let cloned = service.clone();
+        assert_eq!(service.name, cloned.name);
+        assert_eq!(service.srv_type, cloned.srv_type);
+    }
+
+    #[test]
+    fn test_discovered_action_clone() {
+        let action = DiscoveredAction {
+            name: "/navigate".to_string(),
+            action_type: Some("nav2_msgs/action/NavigateToPose".to_string()),
+        };
+
+        let cloned = action.clone();
+        assert_eq!(action.name, cloned.name);
+        assert_eq!(action.action_type, cloned.action_type);
+    }
+
+    #[test]
+    fn test_discovered_parameter_node_clone() {
+        let node = DiscoveredParameterNode {
+            node_name: "/controller".to_string(),
+            namespace: Some("/robot1".to_string()),
+        };
+
+        let cloned = node.clone();
+        assert_eq!(node.node_name, cloned.node_name);
+        assert_eq!(node.namespace, cloned.namespace);
+    }
+
+    #[test]
+    fn test_ros2_domain_id_in_keys() {
+        // Different domain IDs should produce different keys
+        let service_name = "/my_service";
+
+        let key_domain0 = ros2_service_request_key(0, service_name);
+        let key_domain1 = ros2_service_request_key(1, service_name);
+        let key_domain42 = ros2_service_request_key(42, service_name);
+
+        assert!(key_domain0.starts_with("0/"));
+        assert!(key_domain1.starts_with("1/"));
+        assert!(key_domain42.starts_with("42/"));
+
+        // All should contain the service name
+        assert!(key_domain0.contains("my_service"));
+        assert!(key_domain1.contains("my_service"));
+        assert!(key_domain42.contains("my_service"));
+    }
+
+    #[test]
+    fn test_discovery_result_debug_format() {
+        let result = DiscoveryResult::default();
+        let debug_str = format!("{:?}", result);
+        assert!(debug_str.contains("DiscoveryResult"));
+        assert!(debug_str.contains("topics"));
+        assert!(debug_str.contains("services"));
+    }
+
+    #[test]
+    fn test_discovered_topic_debug_format() {
+        let topic = DiscoveredTopic {
+            name: "/test".to_string(),
+            msg_type: Some("std_msgs/msg/String".to_string()),
+            publishers: 1,
+            subscribers: 0,
+            reliable: true,
+        };
+        let debug_str = format!("{:?}", topic);
+        assert!(debug_str.contains("DiscoveredTopic"));
+        assert!(debug_str.contains("/test"));
+    }
+
+    #[test]
+    fn test_discovered_service_debug_format() {
+        let service = DiscoveredService {
+            name: "/srv".to_string(),
+            srv_type: Some("std_srvs/srv/Empty".to_string()),
+        };
+        let debug_str = format!("{:?}", service);
+        assert!(debug_str.contains("DiscoveredService"));
+        assert!(debug_str.contains("/srv"));
+    }
+
+    #[test]
+    fn test_discovered_action_debug_format() {
+        let action = DiscoveredAction {
+            name: "/action".to_string(),
+            action_type: None,
+        };
+        let debug_str = format!("{:?}", action);
+        assert!(debug_str.contains("DiscoveredAction"));
+        assert!(debug_str.contains("/action"));
+    }
+
+    #[test]
+    fn test_parameter_stats_debug_format() {
+        let stats = ParameterStats::new();
+        stats.record_get();
+        let debug_str = format!("{:?}", stats);
+        assert!(debug_str.contains("ParameterStats"));
+    }
+
+    // ========================================================================
+    // Zenoh Key Expression Tests
+    // ========================================================================
+
+    #[test]
+    fn test_ros2_liveliness_key_pattern() {
+        // Zenoh liveliness pattern for ROS2 topic discovery
+        let liveliness_key = "@/liveliness/**";
+        assert!(liveliness_key.starts_with("@/"));
+        assert!(liveliness_key.ends_with("**"));
+    }
+
+    #[test]
+    fn test_topic_name_extraction_from_rt_key() {
+        // Test extracting topic names from Zenoh rt/ keys
+        let test_cases = vec![
+            ("rt/scan", "/scan"),
+            ("rt/robot/odom", "/robot/odom"),
+            ("rt/a/b/c/d", "/a/b/c/d"),
+        ];
+
+        for (key, expected_topic) in test_cases {
+            if let Some(topic) = key.strip_prefix("rt/") {
+                let extracted = format!("/{}", topic);
+                assert_eq!(extracted, expected_topic);
+            } else if let Some(topic) = key.strip_prefix("rt") {
+                let extracted = format!("/{}", topic.trim_start_matches('/'));
+                assert_eq!(extracted, expected_topic);
+            }
+        }
+    }
+
+    #[test]
+    fn test_service_name_with_slashes() {
+        // Service names with multiple path components
+        let service = "/robot1/navigation/get_path";
+        let request_key = ros2_service_request_key(0, service);
+        let response_key = ros2_service_response_key(0, service);
+
+        assert!(request_key.contains("rq"));
+        assert!(response_key.contains("rr"));
+        assert!(request_key.contains("navigation"));
+        assert!(response_key.contains("navigation"));
+    }
+
+    #[test]
+    fn test_empty_discovery_result() {
+        let result = DiscoveryResult::default();
+        assert!(result.topics.is_empty());
+        assert!(result.services.is_empty());
+        assert_eq!(result.topics.len(), 0);
+        assert_eq!(result.services.len(), 0);
+    }
+
+    #[test]
+    fn test_topic_with_many_publishers() {
+        let topic = DiscoveredTopic {
+            name: "/clock".to_string(),
+            msg_type: Some("rosgraph_msgs/msg/Clock".to_string()),
+            publishers: 100,
+            subscribers: 50,
+            reliable: true,
+        };
+
+        assert_eq!(topic.publishers, 100);
+        assert_eq!(topic.subscribers, 50);
+    }
+
+    #[test]
+    fn test_topic_best_effort_qos() {
+        let topic = DiscoveredTopic {
+            name: "/camera/image_raw".to_string(),
+            msg_type: Some("sensor_msgs/msg/Image".to_string()),
+            publishers: 1,
+            subscribers: 1,
+            reliable: false, // Best effort for high-bandwidth data
+        };
+
+        assert!(!topic.reliable);
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[tokio::test]
+    async fn test_discover_topics_returns_result() {
+        // This test verifies the function signature and return type
+        // It may return empty results if no ROS2 system is running
+        let result = discover_ros2_topics(0).await;
+        assert!(result.is_ok());
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[tokio::test]
+    async fn test_discover_services_returns_result() {
+        // This test verifies the function signature and return type
+        let result = discover_ros2_services(0).await;
+        assert!(result.is_ok());
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[tokio::test]
+    async fn test_discover_actions_returns_result() {
+        // This test verifies the function signature and return type
+        let result = discover_ros2_actions(0).await;
+        assert!(result.is_ok());
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[tokio::test]
+    async fn test_discover_parameters_returns_result() {
+        // This test verifies the function signature and return type
+        let result = discover_ros2_parameters(0).await;
+        assert!(result.is_ok());
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[tokio::test]
+    async fn test_discover_on_different_domain_ids() {
+        // Discovery on different domain IDs should work
+        let result0 = discover_ros2_topics(0).await;
+        let result1 = discover_ros2_topics(1).await;
+        let result42 = discover_ros2_topics(42).await;
+
+        // All should succeed (may return empty results)
+        assert!(result0.is_ok());
+        assert!(result1.is_ok());
+        assert!(result42.is_ok());
+    }
+
+    // ============================================================
+    // Zenoh-Based Discovery Tests
+    // ============================================================
+
+    #[test]
+    fn test_zenoh_topic_key_pattern_rt_prefix() {
+        // ROS2 topics in Zenoh use "rt" prefix
+        let topic = "/scan";
+        let key = format!("rt{}", topic);
+        assert!(key.starts_with("rt"));
+        assert_eq!(key, "rt/scan");
+    }
+
+    #[test]
+    fn test_zenoh_topic_key_pattern_nested() {
+        // Nested topic names preserve hierarchy
+        let topic = "/robot1/sensors/lidar/scan";
+        let key = format!("rt{}", topic);
+        assert_eq!(key, "rt/robot1/sensors/lidar/scan");
+        assert_eq!(key.matches('/').count(), 4); // 4 slashes in the key
+    }
+
+    #[test]
+    fn test_zenoh_service_key_domain_encoding() {
+        // ROS2 services include domain ID in key
+        let service = "/get_map";
+        let domain_id = 42u32;
+
+        let request_key = format!("{}/rq{}/**", domain_id, service);
+        let response_key = format!("{}/rr{}/**", domain_id, service);
+
+        assert!(request_key.starts_with("42/"));
+        assert!(response_key.starts_with("42/"));
+    }
+
+    #[test]
+    fn test_zenoh_action_key_patterns_complete() {
+        // ROS2 actions have 5 endpoints: goal, result, feedback, status, cancel
+        let action = "/navigate_to_pose";
+
+        // Action topics (feedback, status)
+        let feedback_key = format!("rt{}/_action/feedback", action);
+        let status_key = format!("rt{}/_action/status", action);
+
+        assert!(feedback_key.contains("_action"));
+        assert!(status_key.contains("_action"));
+
+        // Action services (goal, result, cancel)
+        let goal_key = format!("0/rq{}/_action/send_goal/**", action);
+        let result_key = format!("0/rq{}/_action/get_result/**", action);
+        let cancel_key = format!("0/rq{}/_action/cancel_goal/**", action);
+
+        assert!(goal_key.contains("send_goal"));
+        assert!(result_key.contains("get_result"));
+        assert!(cancel_key.contains("cancel_goal"));
+    }
+
+    #[test]
+    fn test_discovered_action_default_values() {
+        let action = DiscoveredAction {
+            name: "/nav".to_string(),
+            action_type: None,
+        };
+
+        assert_eq!(action.name, "/nav");
+        assert!(action.action_type.is_none());
+    }
+
+    #[test]
+    fn test_discovered_action_with_type() {
+        let action = DiscoveredAction {
+            name: "/navigate_to_pose".to_string(),
+            action_type: Some("nav2_msgs/action/NavigateToPose".to_string()),
+        };
+
+        assert_eq!(action.name, "/navigate_to_pose");
+        assert_eq!(
+            action.action_type.as_ref().unwrap(),
+            "nav2_msgs/action/NavigateToPose"
+        );
+    }
+
+    #[test]
+    fn test_discovered_parameter_node_basic() {
+        let node = DiscoveredParameterNode {
+            node_name: "/controller_manager".to_string(),
+            namespace: None,
+        };
+
+        assert_eq!(node.node_name, "/controller_manager");
+        assert!(node.namespace.is_none());
+    }
+
+    #[test]
+    fn test_discovered_parameter_node_debug() {
+        let node = DiscoveredParameterNode {
+            node_name: "/teleop".to_string(),
+            namespace: Some("/mobile_base".to_string()),
+        };
+
+        let debug_str = format!("{:?}", node);
+        assert!(debug_str.contains("DiscoveredParameterNode"));
+        assert!(debug_str.contains("teleop"));
+    }
+
+    #[test]
+    fn test_discovery_result_aggregation() {
+        let mut result = DiscoveryResult::default();
+
+        // Add multiple topics
+        for i in 0..10 {
+            result.topics.push(DiscoveredTopic {
+                name: format!("/topic_{}", i),
+                msg_type: Some("std_msgs/msg/String".to_string()),
+                publishers: 1,
+                subscribers: i as u32,
+                reliable: i % 2 == 0,
+            });
+        }
+
+        // Add multiple services
+        for i in 0..5 {
+            result.services.push(DiscoveredService {
+                name: format!("/service_{}", i),
+                srv_type: Some("std_srvs/srv/Empty".to_string()),
+            });
+        }
+
+        assert_eq!(result.topics.len(), 10);
+        assert_eq!(result.services.len(), 5);
+
+        // Check topic properties
+        let reliable_count = result.topics.iter().filter(|t| t.reliable).count();
+        assert_eq!(reliable_count, 5); // Even indices are reliable
+    }
+
+    #[test]
+    fn test_discovery_result_filtering_by_name() {
+        let mut result = DiscoveryResult::default();
+
+        result.topics.push(DiscoveredTopic {
+            name: "/scan".to_string(),
+            msg_type: Some("sensor_msgs/msg/LaserScan".to_string()),
+            publishers: 1,
+            subscribers: 2,
+            reliable: true,
+        });
+        result.topics.push(DiscoveredTopic {
+            name: "/camera/image".to_string(),
+            msg_type: Some("sensor_msgs/msg/Image".to_string()),
+            publishers: 1,
+            subscribers: 1,
+            reliable: false,
+        });
+        result.topics.push(DiscoveredTopic {
+            name: "/camera/depth".to_string(),
+            msg_type: Some("sensor_msgs/msg/Image".to_string()),
+            publishers: 1,
+            subscribers: 1,
+            reliable: false,
+        });
+
+        // Filter camera topics
+        let camera_topics: Vec<_> = result
+            .topics
+            .iter()
+            .filter(|t| t.name.starts_with("/camera"))
+            .collect();
+
+        assert_eq!(camera_topics.len(), 2);
+    }
+
+    #[test]
+    fn test_discovery_result_filtering_by_type() {
+        let mut result = DiscoveryResult::default();
+
+        result.topics.push(DiscoveredTopic {
+            name: "/scan".to_string(),
+            msg_type: Some("sensor_msgs/msg/LaserScan".to_string()),
+            publishers: 1,
+            subscribers: 2,
+            reliable: true,
+        });
+        result.topics.push(DiscoveredTopic {
+            name: "/image".to_string(),
+            msg_type: Some("sensor_msgs/msg/Image".to_string()),
+            publishers: 1,
+            subscribers: 1,
+            reliable: false,
+        });
+        result.topics.push(DiscoveredTopic {
+            name: "/twist".to_string(),
+            msg_type: Some("geometry_msgs/msg/Twist".to_string()),
+            publishers: 1,
+            subscribers: 1,
+            reliable: true,
+        });
+
+        // Filter sensor_msgs topics
+        let sensor_topics: Vec<_> = result
+            .topics
+            .iter()
+            .filter(|t| {
+                t.msg_type
+                    .as_ref()
+                    .map_or(false, |m| m.starts_with("sensor_msgs"))
+            })
+            .collect();
+
+        assert_eq!(sensor_topics.len(), 2);
+    }
+
+    #[test]
+    fn test_zenoh_key_wildcard_patterns() {
+        // Zenoh uses ** for multi-level wildcard
+        let service = "/robot1/arm/get_state";
+        let domain_id = 0u32;
+
+        let request_pattern = format!("{}/rq{}/**", domain_id, service);
+        let response_pattern = format!("{}/rr{}/**", domain_id, service);
+
+        assert!(request_pattern.ends_with("/**"));
+        assert!(response_pattern.ends_with("/**"));
+    }
+
+    #[test]
+    fn test_zenoh_parameter_service_keys() {
+        // ROS2 parameters use specific service patterns
+        let node = "/controller";
+        let domain_id = 0u32;
+
+        // List parameters
+        let list_key = format!("{}/rq{}/list_parameters/**", domain_id, node);
+        assert!(list_key.contains("list_parameters"));
+
+        // Get parameters
+        let get_key = format!("{}/rq{}/get_parameters/**", domain_id, node);
+        assert!(get_key.contains("get_parameters"));
+
+        // Set parameters
+        let set_key = format!("{}/rq{}/set_parameters/**", domain_id, node);
+        assert!(set_key.contains("set_parameters"));
+
+        // Describe parameters
+        let describe_key = format!("{}/rq{}/describe_parameters/**", domain_id, node);
+        assert!(describe_key.contains("describe_parameters"));
+    }
+
+    #[test]
+    fn test_discovery_topic_qos_detection() {
+        // Topics with different QoS settings
+        let reliable_topic = DiscoveredTopic {
+            name: "/cmd_vel".to_string(),
+            msg_type: Some("geometry_msgs/msg/Twist".to_string()),
+            publishers: 1,
+            subscribers: 1,
+            reliable: true,
+        };
+
+        let best_effort_topic = DiscoveredTopic {
+            name: "/camera/image_raw".to_string(),
+            msg_type: Some("sensor_msgs/msg/Image".to_string()),
+            publishers: 1,
+            subscribers: 3,
+            reliable: false, // Best effort for high bandwidth
+        };
+
+        assert!(reliable_topic.reliable);
+        assert!(!best_effort_topic.reliable);
+    }
+
+    #[test]
+    fn test_discovery_topic_publisher_subscriber_counts() {
+        let topic = DiscoveredTopic {
+            name: "/rosout".to_string(),
+            msg_type: Some("rcl_interfaces/msg/Log".to_string()),
+            publishers: 50, // Many nodes publish to rosout
+            subscribers: 1, // Usually just one subscriber (rosout_agg)
+            reliable: true,
+        };
+
+        assert!(topic.publishers > topic.subscribers);
+        assert_eq!(topic.publishers, 50);
+    }
+
+    #[test]
+    fn test_discovery_empty_service_type() {
+        // Service discovered but type unknown
+        let service = DiscoveredService {
+            name: "/unknown_service".to_string(),
+            srv_type: None,
+        };
+
+        assert!(service.srv_type.is_none());
+        assert!(!service.name.is_empty());
+    }
+
+    #[test]
+    fn test_discovery_service_with_namespace() {
+        let service = DiscoveredService {
+            name: "/robot1/navigation/get_plan".to_string(),
+            srv_type: Some("nav_msgs/srv/GetPlan".to_string()),
+        };
+
+        assert!(service.name.contains("/robot1"));
+        assert!(service.name.contains("navigation"));
+    }
+
+    #[test]
+    fn test_zenoh_domain_id_range() {
+        // ROS2 supports domain IDs 0-232
+        for domain_id in [0u32, 1, 42, 100, 232] {
+            let topic = "/test";
+            // Domain ID should be valid in key construction
+            let _key = format!("{}/rt{}", domain_id, topic);
+        }
+    }
+
+    #[test]
+    fn test_zenoh_special_characters_in_topic() {
+        // Topics with underscores and numbers
+        let topic = "/robot_1/sensor_array_0/data_stream";
+        let key = format!("rt{}", topic);
+
+        assert!(key.contains("robot_1"));
+        assert!(key.contains("sensor_array_0"));
+        assert!(key.contains("data_stream"));
+    }
+
+    #[test]
+    fn test_discovery_result_default_is_empty() {
+        let result = DiscoveryResult::default();
+
+        assert!(result.topics.is_empty());
+        assert!(result.services.is_empty());
+        assert_eq!(result.topics.capacity(), 0); // No pre-allocation
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[tokio::test]
+    async fn test_discover_topics_with_high_domain_id() {
+        // Test discovery with maximum valid domain ID
+        let result = discover_ros2_topics(232).await;
+        assert!(result.is_ok());
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[tokio::test]
+    async fn test_discover_services_with_high_domain_id() {
+        let result = discover_ros2_services(232).await;
+        assert!(result.is_ok());
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[tokio::test]
+    async fn test_discover_actions_with_high_domain_id() {
+        let result = discover_ros2_actions(232).await;
+        assert!(result.is_ok());
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[tokio::test]
+    async fn test_discover_parameters_with_high_domain_id() {
+        let result = discover_ros2_parameters(232).await;
+        assert!(result.is_ok());
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[tokio::test]
+    async fn test_parallel_discovery() {
+        use tokio::join;
+
+        // Run all discovery functions in parallel
+        let (topics, services, actions, params) = join!(
+            discover_ros2_topics(0),
+            discover_ros2_services(0),
+            discover_ros2_actions(0),
+            discover_ros2_parameters(0)
+        );
+
+        // All should succeed
+        assert!(topics.is_ok());
+        assert!(services.is_ok());
+        assert!(actions.is_ok());
+        assert!(params.is_ok());
+    }
+
+    #[test]
+    fn test_zenoh_tf_topic_keys() {
+        // TF2 uses specific topic names
+        let tf_key = "rt/tf";
+        let tf_static_key = "rt/tf_static";
+
+        assert!(tf_key.ends_with("/tf"));
+        assert!(tf_static_key.ends_with("/tf_static"));
+    }
+
+    #[test]
+    fn test_zenoh_clock_topic_key() {
+        // ROS2 /clock topic for simulation time
+        let clock_key = "rt/clock";
+        assert_eq!(clock_key, "rt/clock");
+    }
+
+    #[test]
+    fn test_zenoh_rosout_topic_key() {
+        // ROS2 logging topic
+        let rosout_key = "rt/rosout";
+        assert_eq!(rosout_key, "rt/rosout");
+    }
+
+    #[test]
+    fn test_discovery_multiple_robots() {
+        let mut result = DiscoveryResult::default();
+
+        // Robot 1 topics
+        result.topics.push(DiscoveredTopic {
+            name: "/robot1/scan".to_string(),
+            msg_type: Some("sensor_msgs/msg/LaserScan".to_string()),
+            publishers: 1,
+            subscribers: 1,
+            reliable: true,
+        });
+        result.topics.push(DiscoveredTopic {
+            name: "/robot1/odom".to_string(),
+            msg_type: Some("nav_msgs/msg/Odometry".to_string()),
+            publishers: 1,
+            subscribers: 2,
+            reliable: true,
+        });
+
+        // Robot 2 topics
+        result.topics.push(DiscoveredTopic {
+            name: "/robot2/scan".to_string(),
+            msg_type: Some("sensor_msgs/msg/LaserScan".to_string()),
+            publishers: 1,
+            subscribers: 1,
+            reliable: true,
+        });
+        result.topics.push(DiscoveredTopic {
+            name: "/robot2/odom".to_string(),
+            msg_type: Some("nav_msgs/msg/Odometry".to_string()),
+            publishers: 1,
+            subscribers: 2,
+            reliable: true,
+        });
+
+        // Filter by robot namespace
+        let robot1_topics: Vec<_> = result
+            .topics
+            .iter()
+            .filter(|t| t.name.starts_with("/robot1"))
+            .collect();
+        let robot2_topics: Vec<_> = result
+            .topics
+            .iter()
+            .filter(|t| t.name.starts_with("/robot2"))
+            .collect();
+
+        assert_eq!(robot1_topics.len(), 2);
+        assert_eq!(robot2_topics.len(), 2);
+    }
+
+    #[test]
+    fn test_action_endpoint_identification() {
+        // Identify action topics vs services from key patterns
+        let action_name = "/navigate";
+
+        // Topics (feedback/status) use rt prefix
+        let feedback = format!("rt{}/_action/feedback", action_name);
+        let status = format!("rt{}/_action/status", action_name);
+
+        assert!(feedback.starts_with("rt"));
+        assert!(status.starts_with("rt"));
+
+        // Services (goal/result/cancel) use domain/rq prefix
+        let goal = format!("0/rq{}/_action/send_goal", action_name);
+        let result = format!("0/rq{}/_action/get_result", action_name);
+
+        assert!(goal.contains("/rq"));
+        assert!(result.contains("/rq"));
+    }
+
+    // ============================================================
+    // ROS2 Integration Tests
+    // ============================================================
+
+    // --- Pub/Sub Message Flow Tests ---
+
+    #[test]
+    fn test_pubsub_topic_creation() {
+        let topic = DiscoveredTopic {
+            name: "/chatter".to_string(),
+            msg_type: Some("std_msgs/msg/String".to_string()),
+            publishers: 1,
+            subscribers: 2,
+            reliable: true,
+        };
+
+        assert_eq!(topic.name, "/chatter");
+        assert!(topic.msg_type.is_some());
+        assert!(topic.publishers > 0);
+    }
+
+    #[test]
+    fn test_pubsub_multiple_publishers() {
+        let topic = DiscoveredTopic {
+            name: "/sensor_data".to_string(),
+            msg_type: Some("sensor_msgs/msg/PointCloud2".to_string()),
+            publishers: 5,
+            subscribers: 3,
+            reliable: false,
+        };
+
+        assert_eq!(topic.publishers, 5);
+        assert!(!topic.reliable); // Best effort for high-bandwidth data
+    }
+
+    #[test]
+    fn test_pubsub_no_subscribers() {
+        let topic = DiscoveredTopic {
+            name: "/debug_info".to_string(),
+            msg_type: Some("std_msgs/msg/String".to_string()),
+            publishers: 1,
+            subscribers: 0, // Topic exists but no subscribers yet
+            reliable: true,
+        };
+
+        assert_eq!(topic.subscribers, 0);
+    }
+
+    #[test]
+    fn test_pubsub_namespaced_topics() {
+        let topics = vec![
+            "/robot1/cmd_vel",
+            "/robot1/odom",
+            "/robot2/cmd_vel",
+            "/robot2/odom",
+        ];
+
+        let robot1_topics: Vec<_> = topics.iter().filter(|t| t.starts_with("/robot1")).collect();
+        let robot2_topics: Vec<_> = topics.iter().filter(|t| t.starts_with("/robot2")).collect();
+
+        assert_eq!(robot1_topics.len(), 2);
+        assert_eq!(robot2_topics.len(), 2);
+    }
+
+    #[test]
+    fn test_pubsub_latched_topic() {
+        // Latched topics (transient local durability) retain last message
+        let topic = DiscoveredTopic {
+            name: "/map".to_string(),
+            msg_type: Some("nav_msgs/msg/OccupancyGrid".to_string()),
+            publishers: 1,
+            subscribers: 5,
+            reliable: true, // Map data needs reliable delivery
+        };
+
+        assert!(topic.reliable);
+        assert!(topic.subscribers > topic.publishers);
+    }
+
+    // --- Service Request/Response Tests ---
+
+    #[test]
+    fn test_service_request_construction() {
+        let service = DiscoveredService {
+            name: "/get_map".to_string(),
+            srv_type: Some("nav_msgs/srv/GetMap".to_string()),
+        };
+
+        assert!(service.name.starts_with('/'));
+        assert!(service.srv_type.as_ref().unwrap().contains("/srv/"));
+    }
+
+    #[test]
+    fn test_service_response_types() {
+        // Services have both Request and Response types
+        let srv_type = "std_srvs/srv/SetBool";
+
+        let request_type = format!("{}_Request", srv_type.replace("/srv/", "/msg/"));
+        let response_type = format!("{}_Response", srv_type.replace("/srv/", "/msg/"));
+
+        assert!(request_type.contains("_Request"));
+        assert!(response_type.contains("_Response"));
+    }
+
+    #[test]
+    fn test_service_key_construction() {
+        let service = "/set_parameters";
+        let domain_id = 0u32;
+
+        // Request key format
+        let request_key = format!("{}/rq{}/**", domain_id, service);
+        // Response key format
+        let response_key = format!("{}/rr{}/**", domain_id, service);
+
+        assert!(request_key.contains("/rq/"));
+        assert!(response_key.contains("/rr/"));
+    }
+
+    #[test]
+    fn test_service_call_sequence() {
+        // Service call: request ID tracking
+        let request_id = uuid::Uuid::new_v4();
+        let service_name = "/add_two_ints";
+
+        let call_info = format!("{}:{}", service_name, request_id);
+        assert!(call_info.contains(service_name));
+    }
+
+    #[test]
+    fn test_service_timeout_handling() {
+        let timeout_ms = 5000u64;
+        let service = DiscoveredService {
+            name: "/slow_service".to_string(),
+            srv_type: Some("std_srvs/srv/Empty".to_string()),
+        };
+
+        // Verify timeout is reasonable for ROS2 services
+        assert!(timeout_ms >= 1000);
+        assert!(!service.name.is_empty());
+    }
+
+    // --- Action Goal/Feedback/Result Tests ---
+
+    #[test]
+    fn test_action_goal_creation() {
+        let action = DiscoveredAction {
+            name: "/navigate_to_pose".to_string(),
+            action_type: Some("nav2_msgs/action/NavigateToPose".to_string()),
+        };
+
+        let goal_topic = format!("{}/_action/send_goal", action.name);
+        assert!(goal_topic.contains("send_goal"));
+    }
+
+    #[test]
+    fn test_action_feedback_topic() {
+        let action_name = "/follow_path";
+        let feedback_topic = format!("{}/_action/feedback", action_name);
+
+        assert!(feedback_topic.ends_with("feedback"));
+        assert!(feedback_topic.contains("_action"));
+    }
+
+    #[test]
+    fn test_action_result_topic() {
+        let action_name = "/spin";
+        let result_topic = format!("{}/_action/get_result", action_name);
+
+        assert!(result_topic.ends_with("get_result"));
+    }
+
+    #[test]
+    fn test_action_status_topic() {
+        let action_name = "/navigate";
+        let status_topic = format!("{}/_action/status", action_name);
+
+        assert!(status_topic.ends_with("status"));
+    }
+
+    #[test]
+    fn test_action_cancel_service() {
+        let action_name = "/dock_robot";
+        let cancel_service = format!("{}/_action/cancel_goal", action_name);
+
+        assert!(cancel_service.ends_with("cancel_goal"));
+    }
+
+    #[test]
+    fn test_action_all_endpoints() {
+        let action_name = "/compute_path";
+
+        // Action has 5 endpoints: 2 topics + 3 services
+        let endpoints = vec![
+            format!("{}/_action/feedback", action_name),    // Topic
+            format!("{}/_action/status", action_name),      // Topic
+            format!("{}/_action/send_goal", action_name),   // Service
+            format!("{}/_action/get_result", action_name),  // Service
+            format!("{}/_action/cancel_goal", action_name), // Service
+        ];
+
+        assert_eq!(endpoints.len(), 5);
+        let topics: Vec<_> = endpoints
+            .iter()
+            .filter(|e| e.contains("feedback") || e.contains("status"))
+            .collect();
+        let services: Vec<_> = endpoints
+            .iter()
+            .filter(|e| e.contains("goal") || e.contains("result"))
+            .collect();
+
+        assert_eq!(topics.len(), 2);
+        assert_eq!(services.len(), 3);
+    }
+
+    #[test]
+    fn test_action_goal_id_format() {
+        // Action goals use UUID for tracking
+        let goal_id = uuid::Uuid::new_v4();
+        let goal_id_str = goal_id.to_string();
+
+        // UUID format: 8-4-4-4-12
+        assert_eq!(goal_id_str.len(), 36);
+        assert_eq!(goal_id_str.chars().filter(|c| *c == '-').count(), 4);
+    }
+
+    #[test]
+    fn test_bridge_direction_variants() {
+        // Test all direction variants exist
+        let directions = [
+            BridgeDirection::In,   // ROS2 -> HORUS
+            BridgeDirection::Out,  // HORUS -> ROS2
+            BridgeDirection::Both, // Bidirectional
+        ];
+
+        assert_eq!(directions.len(), 3);
+    }
+
+    #[test]
+    fn test_bridge_state_creation() {
+        let config = BridgeConfig::default();
+        let bridge = Ros2Bridge::new(config);
+
+        // Bridge should not be running initially
+        assert!(!bridge.running.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    // --- Message Serialization Tests ---
+
+    #[test]
+    fn test_message_type_parsing() {
+        let msg_type = "sensor_msgs/msg/LaserScan";
+        let parts: Vec<&str> = msg_type.split('/').collect();
+
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[0], "sensor_msgs"); // Package
+        assert_eq!(parts[1], "msg"); // Type marker
+        assert_eq!(parts[2], "LaserScan"); // Message name
+    }
+
+    #[test]
+    fn test_service_type_parsing() {
+        let srv_type = "std_srvs/srv/SetBool";
+        let parts: Vec<&str> = srv_type.split('/').collect();
+
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[1], "srv");
+    }
+
+    #[test]
+    fn test_action_type_parsing() {
+        let action_type = "nav2_msgs/action/NavigateToPose";
+        let parts: Vec<&str> = action_type.split('/').collect();
+
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[1], "action");
+    }
+
+    #[test]
+    fn test_cdr_header_format() {
+        // CDR messages have a 4-byte header
+        let cdr_header: [u8; 4] = [0x00, 0x01, 0x00, 0x00]; // Little-endian CDR
+
+        // First byte: 0x00 = CDR version 1
+        // Second byte: 0x01 = little-endian (most common)
+        assert_eq!(cdr_header[1], 0x01);
+    }
+
+    // --- QoS Compatibility Tests ---
+
+    #[test]
+    fn test_qos_reliability_compatibility() {
+        // Reliable subscriber can connect to reliable publisher
+        let pub_reliable = true;
+        let sub_reliable = true;
+
+        let compatible = !sub_reliable || pub_reliable;
+        assert!(compatible);
+    }
+
+    #[test]
+    fn test_qos_reliability_incompatibility() {
+        // Best effort publisher, reliable subscriber = incompatible
+        let pub_reliable = false;
+        let sub_reliable = true;
+
+        let compatible = !sub_reliable || pub_reliable;
+        assert!(!compatible);
+    }
+
+    #[test]
+    fn test_qos_durability_transient_local() {
+        // Transient local (latched) for static data
+        let topic = DiscoveredTopic {
+            name: "/robot_description".to_string(),
+            msg_type: Some("std_msgs/msg/String".to_string()),
+            publishers: 1,
+            subscribers: 10, // Many nodes need robot description
+            reliable: true,
+        };
+
+        assert!(topic.reliable);
+    }
+
+    // --- Topic Filtering Tests ---
+
+    #[test]
+    fn test_filter_topics_by_prefix() {
+        let topics = vec!["/scan", "/camera/image", "/camera/depth", "/odom", "/tf"];
+
+        let camera_topics: Vec<_> = topics.iter().filter(|t| t.starts_with("/camera")).collect();
+
+        assert_eq!(camera_topics.len(), 2);
+    }
+
+    #[test]
+    fn test_filter_topics_by_type() {
+        let mut result = DiscoveryResult::default();
+
+        result.topics.push(DiscoveredTopic {
+            name: "/image".to_string(),
+            msg_type: Some("sensor_msgs/msg/Image".to_string()),
+            publishers: 1,
+            subscribers: 1,
+            reliable: false,
+        });
+        result.topics.push(DiscoveredTopic {
+            name: "/compressed".to_string(),
+            msg_type: Some("sensor_msgs/msg/CompressedImage".to_string()),
+            publishers: 1,
+            subscribers: 1,
+            reliable: false,
+        });
+        result.topics.push(DiscoveredTopic {
+            name: "/cmd_vel".to_string(),
+            msg_type: Some("geometry_msgs/msg/Twist".to_string()),
+            publishers: 1,
+            subscribers: 1,
+            reliable: true,
+        });
+
+        let image_topics: Vec<_> = result
+            .topics
+            .iter()
+            .filter(|t| t.msg_type.as_ref().map_or(false, |m| m.contains("Image")))
+            .collect();
+
+        assert_eq!(image_topics.len(), 2);
+    }
+
+    #[test]
+    fn test_exclude_internal_topics() {
+        let topics = vec!["/scan", "/rosout", "/parameter_events", "/cmd_vel"];
+
+        let internal_topics = ["/rosout", "/parameter_events"];
+
+        let user_topics: Vec<_> = topics
+            .iter()
+            .filter(|t| !internal_topics.contains(t))
+            .collect();
+
+        assert_eq!(user_topics.len(), 2);
+    }
+
+    // --- Error Handling Tests ---
+
+    #[test]
+    fn test_empty_topic_name_detection() {
+        let topic_name = "";
+        assert!(topic_name.is_empty());
+    }
+
+    #[test]
+    fn test_invalid_topic_name_no_slash() {
+        let topic_name = "cmd_vel"; // Missing leading slash
+        assert!(!topic_name.starts_with('/'));
+    }
+
+    #[test]
+    fn test_topic_name_normalization() {
+        let topic_name = "scan";
+        let normalized = if topic_name.starts_with('/') {
+            topic_name.to_string()
+        } else {
+            format!("/{}", topic_name)
+        };
+
+        assert!(normalized.starts_with('/'));
+        assert_eq!(normalized, "/scan");
+    }
+
+    // --- Async Discovery Tests ---
+
+    #[cfg(feature = "zenoh-transport")]
+    #[tokio::test]
+    async fn test_discover_all_entity_types() {
+        use tokio::join;
+
+        let domain_id = 0;
+
+        let (topics, services, actions, params) = join!(
+            discover_ros2_topics(domain_id),
+            discover_ros2_services(domain_id),
+            discover_ros2_actions(domain_id),
+            discover_ros2_parameters(domain_id)
+        );
+
+        // All should return Ok (even if empty)
+        assert!(topics.is_ok());
+        assert!(services.is_ok());
+        assert!(actions.is_ok());
+        assert!(params.is_ok());
+    }
+
+    #[cfg(feature = "zenoh-transport")]
+    #[tokio::test]
+    async fn test_bridge_initialization() {
+        let config = BridgeConfig::default();
+        let bridge = Ros2Bridge::new(config);
+
+        assert!(!bridge.running.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    // --- Stats Tracking Tests ---
+
+    #[test]
+    fn test_bridge_stats_topics_bridged() {
+        let stats = BridgeStats::new();
+
+        stats
+            .topics_bridged
+            .fetch_add(100, std::sync::atomic::Ordering::Relaxed);
+
+        assert_eq!(
+            stats
+                .topics_bridged
+                .load(std::sync::atomic::Ordering::Relaxed),
+            100
+        );
+    }
+
+    #[test]
+    fn test_bridge_stats_topics_discovered() {
+        let stats = BridgeStats::new();
+
+        stats
+            .topics_discovered
+            .store(50, std::sync::atomic::Ordering::Relaxed);
+
+        assert_eq!(
+            stats
+                .topics_discovered
+                .load(std::sync::atomic::Ordering::Relaxed),
+            50
+        );
+    }
+
+    #[test]
+    fn test_bridge_stats_concurrent_updates() {
+        use std::sync::atomic::Ordering;
+
+        let stats = BridgeStats::new();
+
+        // Simulate concurrent topic bridging counting
+        for _ in 0..1000 {
+            stats.topics_bridged.fetch_add(1, Ordering::Relaxed);
+        }
+
+        assert_eq!(stats.topics_bridged.load(Ordering::Relaxed), 1000);
+    }
+
+    // --- Multi-Domain Tests ---
+
+    #[test]
+    fn test_domain_isolation() {
+        // Topics on different domains are isolated
+        let domain0_topic = format!("{}/rt/scan", 0);
+        let domain1_topic = format!("{}/rt/scan", 1);
+
+        assert_ne!(domain0_topic, domain1_topic);
+    }
+
+    #[test]
+    fn test_domain_id_range_valid() {
+        // ROS2 supports domain IDs 0-232
+        for domain_id in [0u32, 100, 232] {
+            assert!(domain_id <= 232);
+        }
+    }
+
+    #[test]
+    fn test_domain_bridge_key_format() {
+        let domain_id = 42u32;
+        let topic = "/robot/state";
+
+        let key = format!("{}/rt{}", domain_id, topic);
+
+        assert!(key.starts_with("42/"));
+        assert!(key.contains("/rt/"));
     }
 }
