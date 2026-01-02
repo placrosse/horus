@@ -63,12 +63,13 @@ pub mod ml;
 pub mod params;
 pub mod scheduling;
 pub mod state_machines;
+pub mod terminal;
 
 // Re-export commonly used types for easy access
 pub use communication::{Hub, Link, LinkMetrics, PodLink, PodMessage};
 pub use core::{
-    HealthStatus, Node, NodeConfig, NodeHeartbeat, NodeInfo, NodeInfoExt, NodeMetrics, NodeState,
-    TopicMetadata,
+    HealthStatus, LogSummary, Node, NodeConfig, NodeHeartbeat, NodeInfo, NodeInfoExt, NodeMetrics,
+    NodeState, TopicMetadata,
 };
 pub use error::{HorusError, HorusResult};
 // Clean aliases for user-facing API

@@ -1,6 +1,7 @@
 use crate::KeyboardInput;
 use horus_core::error::HorusResult;
-use horus_core::{Hub, Node, NodeInfo};
+use horus_core::terminal::set_raw_mode;
+use horus_core::{Hub, Node, NodeInfo, terminal_println};
 
 // Type alias for cleaner signatures
 type Result<T> = HorusResult<T>;
@@ -204,7 +205,8 @@ impl KeyboardInputNode {
         {
             if enable_raw_mode().is_ok() {
                 node.terminal_enabled = true;
-                println!(" Terminal keyboard input enabled. Press arrow keys to control, ESC or Ctrl+C to quit.");
+                set_raw_mode(true);
+                terminal_println!(" Terminal keyboard input enabled. Press arrow keys to control, ESC or Ctrl+C to quit.");
             }
         }
 
@@ -493,6 +495,7 @@ where
         {
             if self.terminal_enabled {
                 let _ = disable_raw_mode();
+                set_raw_mode(false);
                 self.terminal_enabled = false;
             }
         }
@@ -513,8 +516,9 @@ where
                     // Handle Ctrl+C to quit
                     if key_input.has_modifier("Ctrl") && key_input.code == keycodes::KEY_C {
                         use colored::Colorize;
-                        println!("{}", "\nReceived Ctrl+C, shutting down gracefully...".red());
+                        terminal_println!("{}", "\nReceived Ctrl+C, shutting down gracefully...".red());
                         let _ = disable_raw_mode();
+                        set_raw_mode(false);
                         self.terminal_enabled = false;
                         // Signal to exit by triggering standard Ctrl+C handler
                         std::process::exit(0);
@@ -522,8 +526,9 @@ where
 
                     // Handle ESC key to quit
                     if key_input.code == keycodes::KEY_ESCAPE {
-                        println!("\n Received ESC key, disabling raw terminal mode...");
+                        terminal_println!("\n Received ESC key, disabling raw terminal mode...");
                         let _ = disable_raw_mode();
+                        set_raw_mode(false);
                         self.terminal_enabled = false;
                         return;
                     }
@@ -551,6 +556,7 @@ where
         // Clean up terminal mode on drop
         if self.terminal_enabled {
             let _ = disable_raw_mode();
+            set_raw_mode(false);
         }
     }
 }
@@ -679,7 +685,8 @@ where
         {
             if enable_raw_mode().is_ok() {
                 node.terminal_enabled = true;
-                println!(" Terminal keyboard input enabled. Press arrow keys to control, ESC or Ctrl+C to quit.");
+                set_raw_mode(true);
+                terminal_println!(" Terminal keyboard input enabled. Press arrow keys to control, ESC or Ctrl+C to quit.");
             }
         }
 

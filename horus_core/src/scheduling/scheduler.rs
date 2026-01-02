@@ -1,6 +1,7 @@
 use crate::core::{Node, NodeHeartbeat, NodeInfo};
 use crate::error::HorusResult;
 use crate::memory::platform::{shm_control_dir, shm_heartbeats_dir};
+use crate::terminal::print_line;
 use colored::Colorize;
 use std::collections::HashMap;
 use std::fs;
@@ -1489,15 +1490,15 @@ impl Scheduler {
         });
 
         if let Some(rate) = node_rate {
-            println!(
+            print_line(&format!(
                 "Added RT node '{}' with priority {} at {:.1}Hz (WCET: {:?}, deadline: {:?})",
                 node_name, priority, rate, wcet_budget, deadline
-            );
+            ));
         } else {
-            println!(
+            print_line(&format!(
                 "Added RT node '{}' with priority {} (WCET: {:?}, deadline: {:?})",
                 node_name, priority, wcet_budget, deadline
-            );
+            ));
         }
 
         // If safety monitor exists, configure it for this node
