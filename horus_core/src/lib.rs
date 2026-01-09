@@ -49,9 +49,9 @@
 //! }
 //! ```
 
-// pub mod actions; // DISABLED: compile errors
+pub mod actions; // Re-enabled after fixing compile errors
 pub mod backend;
-// pub mod behavior_trees; // DISABLED: compile errors
+pub mod behavior_trees; // Re-enabled after fixing compile errors
 pub mod communication;
 pub mod core;
 pub mod driver;
@@ -83,12 +83,12 @@ pub use communication::traits::{Channel, Publisher, Subscriber};
 // Re-export driver utilities (no traits - drivers are simple structs)
 pub use driver::{DriverCategory, DriverStatus, DriversConfig, SingleDriverConfig};
 
-// Re-export action types for easy access - DISABLED until compile errors fixed
-// pub use actions::{
-//     Action, ActionClientBuilder, ActionClientNode, ActionError, ActionServerBuilder,
-//     ActionServerNode, CancelResponse, ClientGoalHandle, GoalId, GoalOutcome, GoalPriority,
-//     GoalResponse, GoalStatus, PreemptionPolicy, ServerGoalHandle, SyncActionClient,
-// };
+// Re-export action types for easy access
+pub use actions::{
+    Action, ActionClientBuilder, ActionClientNode, ActionError, ActionServerBuilder,
+    ActionServerNode, CancelResponse, ClientGoalHandle, GoalId, GoalOutcome, GoalPriority,
+    GoalResponse, GoalStatus, PreemptionPolicy, ServerGoalHandle, SyncActionClient,
+};
 
 // Re-export state machine types for easy access
 pub use state_machines::{
@@ -96,13 +96,13 @@ pub use state_machines::{
     StateMachineError, Transition, TransitionResult,
 };
 
-// Re-export behavior tree types for easy access - DISABLED until compile errors fixed
-// pub use behavior_trees::{
-//     ActionNode, BTNode, BehaviorTree, BehaviorTreeBuilder, BehaviorTreeError, Blackboard,
-//     ConditionNode, DecoratorNode, DecoratorType, NodeId, NodeStatus, NodeType, ParallelNode,
-//     ParallelPolicy, ReactiveSequenceNode, ReactiveSelectorNode, SelectorNode, SequenceNode,
-//     SharedBehaviorTree, TickContext, TreeVisualizer,
-// };
+// Re-export behavior tree types for easy access
+pub use behavior_trees::{
+    ActionNode, BTNode, BehaviorTree, BehaviorTreeBuilder, BehaviorTreeError, Blackboard,
+    BlackboardValue, ConditionNode, DecoratorNode, DecoratorType, NodeId, NodeStatus, NodeType,
+    ParallelNode, ParallelPolicy, ReactiveSelectorNode, ReactiveSequenceNode, SelectorNode,
+    SequenceNode, SharedBehaviorTree, TickContext, TreeVisualizer,
+};
 
 // Re-export mission planner types for easy access
 pub use mission_planner::{

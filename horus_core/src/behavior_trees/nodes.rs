@@ -9,10 +9,10 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use super::types::{
-    BehaviorTreeError, Blackboard, DecoratorType, NodeId, NodeStatus, NodeType, ParallelPolicy,
-    TickContext,
-};
+use super::types::{DecoratorType, NodeId, NodeStatus, NodeType, ParallelPolicy, TickContext};
+
+#[cfg(test)]
+use super::types::Blackboard;
 
 /// Function type for action node execution.
 pub type ActionFn<C> = Arc<dyn Fn(&mut TickContext<'_, C>) -> NodeStatus + Send + Sync>;
@@ -101,10 +101,13 @@ pub struct ActionNode<C> {
 
 impl<C> ActionNode<C> {
     /// Create a new action node with the given name and action function.
-    pub fn new<S: Into<String>>(name: S, action: impl Fn(&mut TickContext<'_, C>) -> NodeStatus + Send + Sync + 'static) -> Self {
+    pub fn new<S: Into<String>>(
+        name: S,
+        action: impl Fn(&mut TickContext<'_, C>) -> NodeStatus + Send + Sync + 'static,
+    ) -> Self {
         let name = name.into();
         Self {
-            id: NodeId::named(&name),
+            id: NodeId::new(&name),
             name,
             action: Arc::new(action),
             guard: None,
@@ -114,7 +117,10 @@ impl<C> ActionNode<C> {
     }
 
     /// Add a guard condition to this action.
-    pub fn with_guard(mut self, guard: impl Fn(&TickContext<'_, C>) -> bool + Send + Sync + 'static) -> Self {
+    pub fn with_guard(
+        mut self,
+        guard: impl Fn(&TickContext<'_, C>) -> bool + Send + Sync + 'static,
+    ) -> Self {
         self.guard = Some(Arc::new(guard));
         self
     }
@@ -131,16 +137,18 @@ impl<C> ActionNode<C> {
 
     /// Create an action that runs for a specified duration then succeeds.
     pub fn wait<S: Into<String>>(name: S, duration: Duration) -> Self {
-        let start_time: std::cell::Cell<Option<Instant>> = std::cell::Cell::new(None);
+        use std::sync::Mutex;
+        let start_time: Mutex<Option<Instant>> = Mutex::new(None);
         Self::new(name, move |ctx| {
-            let start = start_time.get().unwrap_or_else(|| {
+            let mut guard = start_time.lock().unwrap();
+            let start = guard.unwrap_or_else(|| {
                 let now = Instant::now();
-                start_time.set(Some(now));
+                *guard = Some(now);
                 now
             });
 
             if ctx.elapsed >= duration || start.elapsed() >= duration {
-                start_time.set(None);
+                *guard = None;
                 NodeStatus::Success
             } else {
                 NodeStatus::Running
@@ -228,10 +236,13 @@ pub struct ConditionNode<C> {
 
 impl<C> ConditionNode<C> {
     /// Create a new condition node with the given name and condition function.
-    pub fn new<S: Into<String>>(name: S, condition: impl Fn(&TickContext<'_, C>) -> bool + Send + Sync + 'static) -> Self {
+    pub fn new<S: Into<String>>(
+        name: S,
+        condition: impl Fn(&TickContext<'_, C>) -> bool + Send + Sync + 'static,
+    ) -> Self {
         let name = name.into();
         Self {
-            id: NodeId::named(&name),
+            id: NodeId::new(&name),
             name,
             condition: Arc::new(condition),
             status: NodeStatus::Failure,
@@ -307,7 +318,7 @@ impl<C> SequenceNode<C> {
     pub fn new<S: Into<String>>(name: S) -> Self {
         let name = name.into();
         Self {
-            id: NodeId::named(&name),
+            id: NodeId::new(&name),
             name,
             children: Vec::new(),
             current_child: 0,
@@ -417,7 +428,7 @@ impl<C> SelectorNode<C> {
     pub fn new<S: Into<String>>(name: S) -> Self {
         let name = name.into();
         Self {
-            id: NodeId::named(&name),
+            id: NodeId::new(&name),
             name,
             children: Vec::new(),
             current_child: 0,
@@ -530,7 +541,7 @@ impl<C> ParallelNode<C> {
     pub fn new<S: Into<String>>(name: S, policy: ParallelPolicy) -> Self {
         let name = name.into();
         Self {
-            id: NodeId::named(&name),
+            id: NodeId::new(&name),
             name,
             children: Vec::new(),
             policy,
@@ -567,7 +578,6 @@ impl<C: Send + Sync> BTNode<C> for ParallelNode<C> {
     fn tick(&mut self, ctx: &mut TickContext<'_, C>) -> NodeStatus {
         let mut success_count = 0;
         let mut failure_count = 0;
-        let mut running_count = 0;
 
         // Tick all children
         for child in &mut self.children {
@@ -575,7 +585,7 @@ impl<C: Send + Sync> BTNode<C> for ParallelNode<C> {
             match child_status {
                 NodeStatus::Success => success_count += 1,
                 NodeStatus::Failure => failure_count += 1,
-                NodeStatus::Running => running_count += 1,
+                NodeStatus::Running => {}
             }
         }
 
@@ -683,14 +693,19 @@ pub struct DecoratorNode<C> {
     repeat_count: usize,
     start_time: Option<Instant>,
     last_run_time: Option<Instant>,
+    has_run: bool,
 }
 
 impl<C: Send + Sync + 'static> DecoratorNode<C> {
     /// Create a new decorator node with the given child and type.
-    pub fn new<S: Into<String>>(name: S, decorator_type: DecoratorType, child: impl BTNode<C> + 'static) -> Self {
+    pub fn new<S: Into<String>>(
+        name: S,
+        decorator_type: DecoratorType,
+        child: impl BTNode<C> + 'static,
+    ) -> Self {
         let name = name.into();
         Self {
-            id: NodeId::named(&name),
+            id: NodeId::new(&name),
             name,
             child: Box::new(child),
             decorator_type,
@@ -698,6 +713,7 @@ impl<C: Send + Sync + 'static> DecoratorNode<C> {
             repeat_count: 0,
             start_time: None,
             last_run_time: None,
+            has_run: false,
         }
     }
 
@@ -717,7 +733,11 @@ impl<C: Send + Sync + 'static> DecoratorNode<C> {
     }
 
     /// Create a repeater decorator.
-    pub fn repeater<S: Into<String>>(name: S, count: usize, child: impl BTNode<C> + 'static) -> Self {
+    pub fn repeater<S: Into<String>>(
+        name: S,
+        count: usize,
+        child: impl BTNode<C> + 'static,
+    ) -> Self {
         Self::new(name, DecoratorType::Repeater(count), child)
     }
 
@@ -732,17 +752,29 @@ impl<C: Send + Sync + 'static> DecoratorNode<C> {
     }
 
     /// Create a timeout decorator.
-    pub fn timeout<S: Into<String>>(name: S, duration: Duration, child: impl BTNode<C> + 'static) -> Self {
+    pub fn timeout<S: Into<String>>(
+        name: S,
+        duration: Duration,
+        child: impl BTNode<C> + 'static,
+    ) -> Self {
         Self::new(name, DecoratorType::Timeout(duration), child)
     }
 
     /// Create a delay decorator.
-    pub fn delay<S: Into<String>>(name: S, duration: Duration, child: impl BTNode<C> + 'static) -> Self {
+    pub fn delay<S: Into<String>>(
+        name: S,
+        duration: Duration,
+        child: impl BTNode<C> + 'static,
+    ) -> Self {
         Self::new(name, DecoratorType::Delay(duration), child)
     }
 
     /// Create a cooldown decorator.
-    pub fn cooldown<S: Into<String>>(name: S, duration: Duration, child: impl BTNode<C> + 'static) -> Self {
+    pub fn cooldown<S: Into<String>>(
+        name: S,
+        duration: Duration,
+        child: impl BTNode<C> + 'static,
+    ) -> Self {
         Self::new(name, DecoratorType::Cooldown(duration), child)
     }
 }
@@ -762,13 +794,11 @@ impl<C: Send + Sync> BTNode<C> for DecoratorNode<C> {
 
     fn tick(&mut self, ctx: &mut TickContext<'_, C>) -> NodeStatus {
         self.status = match &self.decorator_type {
-            DecoratorType::Inverter => {
-                match self.child.tick(ctx) {
-                    NodeStatus::Success => NodeStatus::Failure,
-                    NodeStatus::Failure => NodeStatus::Success,
-                    NodeStatus::Running => NodeStatus::Running,
-                }
-            }
+            DecoratorType::Inverter => match self.child.tick(ctx) {
+                NodeStatus::Success => NodeStatus::Failure,
+                NodeStatus::Failure => NodeStatus::Success,
+                NodeStatus::Running => NodeStatus::Running,
+            },
             DecoratorType::Succeeder => {
                 let _ = self.child.tick(ctx);
                 NodeStatus::Success
@@ -874,6 +904,57 @@ impl<C: Send + Sync> BTNode<C> for DecoratorNode<C> {
                 }
                 child_status
             }
+            DecoratorType::Retry(max_retries) => {
+                let child_status = self.child.tick(ctx);
+                match child_status {
+                    NodeStatus::Running => NodeStatus::Running,
+                    NodeStatus::Success => {
+                        self.repeat_count = 0;
+                        NodeStatus::Success
+                    }
+                    NodeStatus::Failure => {
+                        self.repeat_count += 1;
+                        if self.repeat_count >= *max_retries as usize {
+                            self.repeat_count = 0;
+                            NodeStatus::Failure
+                        } else {
+                            self.child.reset();
+                            NodeStatus::Running // Will retry on next tick
+                        }
+                    }
+                }
+            }
+            DecoratorType::RunOnce => {
+                // If already run, return the cached status
+                if self.has_run {
+                    return self.status;
+                }
+
+                let child_status = self.child.tick(ctx);
+                if child_status != NodeStatus::Running {
+                    self.has_run = true;
+                }
+                child_status
+            }
+            DecoratorType::ForceSuccessAfter(max_failures) => {
+                let child_status = self.child.tick(ctx);
+                match child_status {
+                    NodeStatus::Running => NodeStatus::Running,
+                    NodeStatus::Success => {
+                        self.repeat_count = 0;
+                        NodeStatus::Success
+                    }
+                    NodeStatus::Failure => {
+                        self.repeat_count += 1;
+                        if self.repeat_count >= *max_failures as usize {
+                            self.repeat_count = 0;
+                            NodeStatus::Success // Force success after too many failures
+                        } else {
+                            NodeStatus::Failure
+                        }
+                    }
+                }
+            }
         };
 
         self.status
@@ -883,6 +964,7 @@ impl<C: Send + Sync> BTNode<C> for DecoratorNode<C> {
         self.status = NodeStatus::Failure;
         self.repeat_count = 0;
         self.start_time = None;
+        self.has_run = false;
         // Note: Don't reset last_run_time for cooldown
         self.child.reset();
     }
@@ -911,7 +993,7 @@ impl<C> SubtreeNode<C> {
     pub fn new<S: Into<String>>(name: S, root: impl BTNode<C> + 'static) -> Self {
         let name = name.into();
         Self {
-            id: NodeId::named(&name),
+            id: NodeId::new(&name),
             name,
             root: Box::new(root),
             status: NodeStatus::Failure,
@@ -965,7 +1047,7 @@ impl<C> ReactiveSequenceNode<C> {
     pub fn new<S: Into<String>>(name: S) -> Self {
         let name = name.into();
         Self {
-            id: NodeId::named(&name),
+            id: NodeId::new(&name),
             name,
             children: Vec::new(),
             running_child: None,
@@ -1062,7 +1144,7 @@ impl<C> ReactiveSelectorNode<C> {
     pub fn new<S: Into<String>>(name: S) -> Self {
         let name = name.into();
         Self {
-            id: NodeId::named(&name),
+            id: NodeId::new(&name),
             name,
             children: Vec::new(),
             running_child: None,
@@ -1156,12 +1238,15 @@ mod tests {
 
     #[test]
     fn test_action_node() {
-        let mut action = ActionNode::new("increment", |ctx| {
+        let mut action = ActionNode::new("increment", |ctx: &mut TickContext<TestContext>| {
             ctx.context.counter += 1;
             NodeStatus::Success
         });
 
-        let mut ctx = TestContext { counter: 0, flag: false };
+        let mut ctx = TestContext {
+            counter: 0,
+            flag: false,
+        };
         let mut blackboard = Blackboard::new();
         let mut tick_ctx = TickContext {
             blackboard: &mut blackboard,
@@ -1178,9 +1263,14 @@ mod tests {
 
     #[test]
     fn test_condition_node() {
-        let mut condition = ConditionNode::new("check_flag", |ctx| ctx.context.flag);
+        let mut condition = ConditionNode::new("check_flag", |ctx: &TickContext<TestContext>| {
+            ctx.context.flag
+        });
 
-        let mut ctx = TestContext { counter: 0, flag: false };
+        let mut ctx = TestContext {
+            counter: 0,
+            flag: false,
+        };
         let mut blackboard = Blackboard::new();
         let mut tick_ctx = TickContext {
             blackboard: &mut blackboard,
@@ -1199,12 +1289,21 @@ mod tests {
     #[test]
     fn test_sequence_node() {
         let sequence = SequenceNode::new("test_sequence")
-            .add_child(ActionNode::new("a1", |_| NodeStatus::Success))
-            .add_child(ActionNode::new("a2", |_| NodeStatus::Success))
-            .add_child(ActionNode::new("a3", |_| NodeStatus::Success));
+            .add_child(ActionNode::new("a1", |_: &mut TickContext<TestContext>| {
+                NodeStatus::Success
+            }))
+            .add_child(ActionNode::new("a2", |_: &mut TickContext<TestContext>| {
+                NodeStatus::Success
+            }))
+            .add_child(ActionNode::new("a3", |_: &mut TickContext<TestContext>| {
+                NodeStatus::Success
+            }));
 
         let mut sequence = sequence;
-        let mut ctx = TestContext { counter: 0, flag: false };
+        let mut ctx = TestContext {
+            counter: 0,
+            flag: false,
+        };
         let mut blackboard = Blackboard::new();
         let mut tick_ctx = TickContext {
             blackboard: &mut blackboard,
@@ -1220,12 +1319,21 @@ mod tests {
     #[test]
     fn test_sequence_failure() {
         let sequence = SequenceNode::new("test_sequence")
-            .add_child(ActionNode::new("a1", |_| NodeStatus::Success))
-            .add_child(ActionNode::new("a2", |_| NodeStatus::Failure))
-            .add_child(ActionNode::new("a3", |_| NodeStatus::Success));
+            .add_child(ActionNode::new("a1", |_: &mut TickContext<TestContext>| {
+                NodeStatus::Success
+            }))
+            .add_child(ActionNode::new("a2", |_: &mut TickContext<TestContext>| {
+                NodeStatus::Failure
+            }))
+            .add_child(ActionNode::new("a3", |_: &mut TickContext<TestContext>| {
+                NodeStatus::Success
+            }));
 
         let mut sequence = sequence;
-        let mut ctx = TestContext { counter: 0, flag: false };
+        let mut ctx = TestContext {
+            counter: 0,
+            flag: false,
+        };
         let mut blackboard = Blackboard::new();
         let mut tick_ctx = TickContext {
             blackboard: &mut blackboard,
@@ -1241,12 +1349,21 @@ mod tests {
     #[test]
     fn test_selector_node() {
         let selector = SelectorNode::new("test_selector")
-            .add_child(ActionNode::new("a1", |_| NodeStatus::Failure))
-            .add_child(ActionNode::new("a2", |_| NodeStatus::Success))
-            .add_child(ActionNode::new("a3", |_| NodeStatus::Failure));
+            .add_child(ActionNode::new("a1", |_: &mut TickContext<TestContext>| {
+                NodeStatus::Failure
+            }))
+            .add_child(ActionNode::new("a2", |_: &mut TickContext<TestContext>| {
+                NodeStatus::Success
+            }))
+            .add_child(ActionNode::new("a3", |_: &mut TickContext<TestContext>| {
+                NodeStatus::Failure
+            }));
 
         let mut selector = selector;
-        let mut ctx = TestContext { counter: 0, flag: false };
+        let mut ctx = TestContext {
+            counter: 0,
+            flag: false,
+        };
         let mut blackboard = Blackboard::new();
         let mut tick_ctx = TickContext {
             blackboard: &mut blackboard,
@@ -1263,10 +1380,15 @@ mod tests {
     fn test_inverter_decorator() {
         let mut inverter = DecoratorNode::inverter(
             "invert",
-            ActionNode::new("succeed", |_| NodeStatus::Success),
+            ActionNode::new("succeed", |_: &mut TickContext<TestContext>| {
+                NodeStatus::Success
+            }),
         );
 
-        let mut ctx = TestContext { counter: 0, flag: false };
+        let mut ctx = TestContext {
+            counter: 0,
+            flag: false,
+        };
         let mut blackboard = Blackboard::new();
         let mut tick_ctx = TickContext {
             blackboard: &mut blackboard,
@@ -1282,11 +1404,18 @@ mod tests {
     #[test]
     fn test_parallel_require_all() {
         let parallel = ParallelNode::new("parallel", ParallelPolicy::RequireAll)
-            .add_child(ActionNode::new("a1", |_| NodeStatus::Success))
-            .add_child(ActionNode::new("a2", |_| NodeStatus::Success));
+            .add_child(ActionNode::new("a1", |_: &mut TickContext<TestContext>| {
+                NodeStatus::Success
+            }))
+            .add_child(ActionNode::new("a2", |_: &mut TickContext<TestContext>| {
+                NodeStatus::Success
+            }));
 
         let mut parallel = parallel;
-        let mut ctx = TestContext { counter: 0, flag: false };
+        let mut ctx = TestContext {
+            counter: 0,
+            flag: false,
+        };
         let mut blackboard = Blackboard::new();
         let mut tick_ctx = TickContext {
             blackboard: &mut blackboard,
@@ -1302,11 +1431,18 @@ mod tests {
     #[test]
     fn test_parallel_require_one() {
         let parallel = ParallelNode::new("parallel", ParallelPolicy::RequireOne)
-            .add_child(ActionNode::new("a1", |_| NodeStatus::Failure))
-            .add_child(ActionNode::new("a2", |_| NodeStatus::Success));
+            .add_child(ActionNode::new("a1", |_: &mut TickContext<TestContext>| {
+                NodeStatus::Failure
+            }))
+            .add_child(ActionNode::new("a2", |_: &mut TickContext<TestContext>| {
+                NodeStatus::Success
+            }));
 
         let mut parallel = parallel;
-        let mut ctx = TestContext { counter: 0, flag: false };
+        let mut ctx = TestContext {
+            counter: 0,
+            flag: false,
+        };
         let mut blackboard = Blackboard::new();
         let mut tick_ctx = TickContext {
             blackboard: &mut blackboard,

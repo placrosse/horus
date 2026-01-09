@@ -33,7 +33,7 @@ use crate::communication::Link;
 use crate::core::{LogSummary, Node, NodeInfo};
 use crate::HorusResult;
 
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -78,12 +78,8 @@ impl<A: Action> ClientGoalState<A> {
     }
 }
 
-impl<A: Action> ClientGoalHandle<A>
-where
-    A::Goal: Clone + Send + Sync + Serialize + DeserializeOwned + Debug + LogSummary + 'static,
-    A::Feedback: Clone + Send + Sync + Serialize + DeserializeOwned + Debug + LogSummary + 'static,
-    A::Result: Clone + Send + Sync + Serialize + DeserializeOwned + Debug + LogSummary + 'static,
-{
+// Basic accessors that don't require LogSummary bounds
+impl<A: Action> ClientGoalHandle<A> {
     /// Get the goal ID.
     pub fn goal_id(&self) -> GoalId {
         self.goal_id
@@ -114,18 +110,6 @@ where
         self.state.read().status.is_success()
     }
 
-    /// Get the result if the goal has completed.
-    ///
-    /// Returns `None` if the goal is still active or no result has been received.
-    pub fn get_result(&self) -> Option<A::Result> {
-        self.state.read().result.clone()
-    }
-
-    /// Get the last feedback received.
-    pub fn get_last_feedback(&self) -> Option<A::Feedback> {
-        self.state.read().last_feedback.clone()
-    }
-
     /// Get the number of feedback messages received.
     pub fn feedback_count(&self) -> u64 {
         self.state.read().feedback_count
@@ -139,6 +123,26 @@ where
     /// Get the time since the last status update.
     pub fn time_since_update(&self) -> Duration {
         self.state.read().updated_at.elapsed()
+    }
+}
+
+// Methods that require Result/Feedback access (need Clone bounds)
+impl<A: Action> ClientGoalHandle<A>
+where
+    A::Goal: Clone + Send + Sync + Serialize + DeserializeOwned + Debug + LogSummary + 'static,
+    A::Feedback: Clone + Send + Sync + Serialize + DeserializeOwned + Debug + LogSummary + 'static,
+    A::Result: Clone + Send + Sync + Serialize + DeserializeOwned + Debug + LogSummary + 'static,
+{
+    /// Get the result if the goal has completed.
+    ///
+    /// Returns `None` if the goal is still active or no result has been received.
+    pub fn get_result(&self) -> Option<A::Result> {
+        self.state.read().result.clone()
+    }
+
+    /// Get the last feedback received.
+    pub fn get_last_feedback(&self) -> Option<A::Feedback> {
+        self.state.read().last_feedback.clone()
     }
 
     /// Wait for the goal to complete, blocking until done or timeout.
@@ -232,6 +236,7 @@ where
     }
 
     /// Update the goal state (called internally by the client).
+    #[allow(dead_code)]
     fn update_status(&self, status: GoalStatus) {
         let mut state = self.state.write();
         state.status = status;
@@ -239,6 +244,7 @@ where
     }
 
     /// Update with a result (called internally by the client).
+    #[allow(dead_code)]
     fn update_result(&self, result: A::Result, status: GoalStatus) {
         let mut state = self.state.write();
         state.result = Some(result);
@@ -247,6 +253,7 @@ where
     }
 
     /// Update with feedback (called internally by the client).
+    #[allow(dead_code)]
     fn update_feedback(&self, feedback: A::Feedback) {
         let mut state = self.state.write();
         state.last_feedback = Some(feedback);
@@ -344,11 +351,7 @@ where
     }
 
     /// Send a goal request.
-    fn send_goal(
-        &self,
-        goal: A::Goal,
-        priority: GoalPriority,
-    ) -> Result<GoalId, ActionError> {
+    fn send_goal(&self, goal: A::Goal, priority: GoalPriority) -> Result<GoalId, ActionError> {
         if !self.initialized.load(Ordering::Acquire) {
             return Err(ActionError::ServerUnavailable);
         }
@@ -358,7 +361,7 @@ where
 
         if let Some(ref link) = *self.goal_link.read() {
             link.send(request, &mut None)
-                .map_err(|e| ActionError::CommunicationError(e.to_string()))?;
+                .map_err(|_| ActionError::CommunicationError("Failed to send goal".to_string()))?;
 
             log::debug!("ActionClient '{}': Sent goal {}", A::name(), goal_id);
             Ok(goal_id)
@@ -455,6 +458,7 @@ where
     }
 
     /// Remove a goal handle.
+    #[allow(dead_code)]
     fn unregister_goal(&self, goal_id: GoalId) {
         self.goals.write().remove(&goal_id);
     }
@@ -804,9 +808,7 @@ where
                         .ok_or(ActionError::ExecutionError("Missing result".into())),
                     GoalStatus::Canceled => Err(ActionError::GoalCanceled),
                     GoalStatus::Preempted => Err(ActionError::GoalPreempted),
-                    GoalStatus::Rejected => {
-                        Err(ActionError::GoalRejected("Goal rejected".into()))
-                    }
+                    GoalStatus::Rejected => Err(ActionError::GoalRejected("Goal rejected".into())),
                     _ => Err(ActionError::ExecutionError("Goal aborted".into())),
                 };
             }
@@ -861,9 +863,7 @@ where
                         .ok_or(ActionError::ExecutionError("Missing result".into())),
                     GoalStatus::Canceled => Err(ActionError::GoalCanceled),
                     GoalStatus::Preempted => Err(ActionError::GoalPreempted),
-                    GoalStatus::Rejected => {
-                        Err(ActionError::GoalRejected("Goal rejected".into()))
-                    }
+                    GoalStatus::Rejected => Err(ActionError::GoalRejected("Goal rejected".into())),
                     _ => Err(ActionError::ExecutionError("Goal aborted".into())),
                 };
             }

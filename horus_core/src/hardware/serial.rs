@@ -435,6 +435,7 @@ struct UsbInfo {
 }
 
 /// Well-known serial device VID/PIDs
+#[allow(dead_code)]
 pub mod known_devices {
     /// Arduino Uno
     pub const ARDUINO_UNO: (u16, u16) = (0x2341, 0x0043);

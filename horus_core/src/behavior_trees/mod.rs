@@ -195,9 +195,8 @@ pub mod types;
 
 // Re-export main types at module level
 pub use nodes::{
-    ActionFn, ActionNode, BTNode, ConditionFn, ConditionNode, DecoratorNode, GuardFn,
-    ParallelNode, ReactiveSequenceNode, ReactiveSelectorNode, SelectorNode, SequenceNode,
-    SubtreeNode,
+    ActionFn, ActionNode, BTNode, ConditionFn, ConditionNode, DecoratorNode, GuardFn, ParallelNode,
+    ReactiveSelectorNode, ReactiveSequenceNode, SelectorNode, SequenceNode, SubtreeNode,
 };
 pub use tree::{BehaviorTree, BehaviorTreeBuilder, NodeStats, SharedBehaviorTree, TreeVisualizer};
 pub use types::{
@@ -214,8 +213,8 @@ pub mod prelude {
     pub use super::{
         ActionNode, BTNode, BehaviorTree, BehaviorTreeBuilder, Blackboard, ConditionNode,
         DecoratorNode, DecoratorType, NodeId, NodeStatus, NodeType, ParallelNode, ParallelPolicy,
-        ReactiveSequenceNode, ReactiveSelectorNode, SelectorNode, SequenceNode,
-        SharedBehaviorTree, TickContext, TreeVisualizer,
+        ReactiveSelectorNode, ReactiveSequenceNode, SelectorNode, SequenceNode, SharedBehaviorTree,
+        TickContext, TreeVisualizer,
     };
 }
 
@@ -233,21 +232,30 @@ mod tests {
     fn test_module_exports() {
         // Verify main types are accessible
         let _status = NodeStatus::Success;
-        let _id = NodeId::named("test");
+        let _id = NodeId::new("test");
         let _blackboard = Blackboard::new();
     }
 
     #[test]
     fn test_simple_tree() {
         let root = SequenceNode::new("main")
-            .add_child(ConditionNode::new("check", |ctx| ctx.context.flag))
-            .add_child(ActionNode::new("action", |ctx| {
-                ctx.context.value = 42;
-                NodeStatus::Success
-            }));
+            .add_child(ConditionNode::new(
+                "check",
+                |ctx: &TickContext<TestContext>| ctx.context.flag,
+            ))
+            .add_child(ActionNode::new(
+                "action",
+                |ctx: &mut TickContext<TestContext>| {
+                    ctx.context.value = 42;
+                    NodeStatus::Success
+                },
+            ));
 
         let mut tree = BehaviorTree::new("test", root);
-        let mut ctx = TestContext { value: 0, flag: true };
+        let mut ctx = TestContext {
+            value: 0,
+            flag: true,
+        };
 
         let status = tree.tick(&mut ctx).unwrap();
         assert_eq!(status, NodeStatus::Success);
@@ -257,14 +265,23 @@ mod tests {
     #[test]
     fn test_selector_fallback() {
         let root = SelectorNode::new("fallback")
-            .add_child(ActionNode::new("fail", |_| NodeStatus::Failure))
-            .add_child(ActionNode::new("succeed", |ctx| {
-                ctx.context.value = 100;
-                NodeStatus::Success
-            }));
+            .add_child(ActionNode::new(
+                "fail",
+                |_: &mut TickContext<TestContext>| NodeStatus::Failure,
+            ))
+            .add_child(ActionNode::new(
+                "succeed",
+                |ctx: &mut TickContext<TestContext>| {
+                    ctx.context.value = 100;
+                    NodeStatus::Success
+                },
+            ));
 
         let mut tree = BehaviorTree::new("test", root);
-        let mut ctx = TestContext { value: 0, flag: false };
+        let mut ctx = TestContext {
+            value: 0,
+            flag: false,
+        };
 
         let status = tree.tick(&mut ctx).unwrap();
         assert_eq!(status, NodeStatus::Success);
@@ -274,17 +291,26 @@ mod tests {
     #[test]
     fn test_parallel_node() {
         let root = ParallelNode::new("parallel", ParallelPolicy::RequireAll)
-            .add_child(ActionNode::new("a1", |ctx| {
-                ctx.context.value += 1;
-                NodeStatus::Success
-            }))
-            .add_child(ActionNode::new("a2", |ctx| {
-                ctx.context.value += 10;
-                NodeStatus::Success
-            }));
+            .add_child(ActionNode::new(
+                "a1",
+                |ctx: &mut TickContext<TestContext>| {
+                    ctx.context.value += 1;
+                    NodeStatus::Success
+                },
+            ))
+            .add_child(ActionNode::new(
+                "a2",
+                |ctx: &mut TickContext<TestContext>| {
+                    ctx.context.value += 10;
+                    NodeStatus::Success
+                },
+            ));
 
         let mut tree = BehaviorTree::new("test", root);
-        let mut ctx = TestContext { value: 0, flag: false };
+        let mut ctx = TestContext {
+            value: 0,
+            flag: false,
+        };
 
         let status = tree.tick(&mut ctx).unwrap();
         assert_eq!(status, NodeStatus::Success);
@@ -295,11 +321,16 @@ mod tests {
     fn test_decorator_inverter() {
         let root = DecoratorNode::inverter(
             "invert",
-            ActionNode::new("fail", |_| NodeStatus::Failure),
+            ActionNode::new("fail", |_: &mut TickContext<TestContext>| {
+                NodeStatus::Failure
+            }),
         );
 
         let mut tree = BehaviorTree::new("test", root);
-        let mut ctx = TestContext { value: 0, flag: false };
+        let mut ctx = TestContext {
+            value: 0,
+            flag: false,
+        };
 
         let status = tree.tick(&mut ctx).unwrap();
         assert_eq!(status, NodeStatus::Success);
@@ -308,21 +339,30 @@ mod tests {
     #[test]
     fn test_blackboard_communication() {
         let root = SequenceNode::new("main")
-            .add_child(ActionNode::new("write", |ctx| {
-                ctx.blackboard.set("key", 42i32);
-                NodeStatus::Success
-            }))
-            .add_child(ActionNode::new("read", |ctx| {
-                if let Some(value) = ctx.blackboard.get::<i32>("key") {
-                    ctx.context.value = value;
+            .add_child(ActionNode::new(
+                "write",
+                |ctx: &mut TickContext<TestContext>| {
+                    ctx.blackboard.set("key", 42i32);
                     NodeStatus::Success
-                } else {
-                    NodeStatus::Failure
-                }
-            }));
+                },
+            ))
+            .add_child(ActionNode::new(
+                "read",
+                |ctx: &mut TickContext<TestContext>| {
+                    if let Some(value) = ctx.blackboard.get_int("key") {
+                        ctx.context.value = value as i32;
+                        NodeStatus::Success
+                    } else {
+                        NodeStatus::Failure
+                    }
+                },
+            ));
 
         let mut tree = BehaviorTree::new("test", root);
-        let mut ctx = TestContext { value: 0, flag: false };
+        let mut ctx = TestContext {
+            value: 0,
+            flag: false,
+        };
 
         let status = tree.tick(&mut ctx).unwrap();
         assert_eq!(status, NodeStatus::Success);
@@ -335,7 +375,10 @@ mod tests {
             .with_tick_rate(Duration::from_millis(50))
             .reset_on_complete(true)
             .collect_metrics(true)
-            .root(ActionNode::new("test", |_| NodeStatus::Success))
+            .root(ActionNode::new(
+                "test",
+                |_: &mut TickContext<TestContext>| NodeStatus::Success,
+            ))
             .build()
             .unwrap();
 
@@ -346,7 +389,7 @@ mod tests {
 
     #[test]
     fn test_shared_tree() {
-        let root = ActionNode::new("inc", |ctx| {
+        let root = ActionNode::new("inc", |ctx: &mut TickContext<TestContext>| {
             ctx.context.value += 1;
             NodeStatus::Success
         });
@@ -354,7 +397,10 @@ mod tests {
         let tree = BehaviorTree::new("shared", root);
         let shared = SharedBehaviorTree::new(tree);
 
-        let mut ctx = TestContext { value: 0, flag: false };
+        let mut ctx = TestContext {
+            value: 0,
+            flag: false,
+        };
 
         // Tick from multiple references
         shared.tick(&mut ctx).unwrap();
@@ -368,14 +414,23 @@ mod tests {
     fn test_reactive_sequence() {
         // A reactive sequence that checks a condition every tick
         let root = ReactiveSequenceNode::new("reactive")
-            .add_child(ConditionNode::new("flag_set", |ctx| ctx.context.flag))
-            .add_child(ActionNode::new("inc", |ctx| {
-                ctx.context.value += 1;
-                NodeStatus::Running
-            }));
+            .add_child(ConditionNode::new(
+                "flag_set",
+                |ctx: &TickContext<TestContext>| ctx.context.flag,
+            ))
+            .add_child(ActionNode::new(
+                "inc",
+                |ctx: &mut TickContext<TestContext>| {
+                    ctx.context.value += 1;
+                    NodeStatus::Running
+                },
+            ));
 
         let mut tree = BehaviorTree::new("test", root);
-        let mut ctx = TestContext { value: 0, flag: true };
+        let mut ctx = TestContext {
+            value: 0,
+            flag: true,
+        };
 
         // First tick: condition passes, action runs
         let status = tree.tick(&mut ctx).unwrap();
@@ -396,11 +451,22 @@ mod tests {
 
     #[test]
     fn test_tree_visualization() {
-        let root = SequenceNode::new("root")
-            .add_child(ActionNode::new("child1", |_| NodeStatus::Success))
-            .add_child(SelectorNode::new("child2")
-                .add_child(ActionNode::new("grandchild1", |_| NodeStatus::Failure))
-                .add_child(ActionNode::new("grandchild2", |_| NodeStatus::Success)));
+        let root = SequenceNode::<TestContext>::new("root")
+            .add_child(ActionNode::new(
+                "child1",
+                |_: &mut TickContext<TestContext>| NodeStatus::Success,
+            ))
+            .add_child(
+                SelectorNode::new("child2")
+                    .add_child(ActionNode::new(
+                        "grandchild1",
+                        |_: &mut TickContext<TestContext>| NodeStatus::Failure,
+                    ))
+                    .add_child(ActionNode::new(
+                        "grandchild2",
+                        |_: &mut TickContext<TestContext>| NodeStatus::Success,
+                    )),
+            );
 
         let tree = BehaviorTree::new("viz_test", root);
         let ascii = TreeVisualizer::to_ascii(&tree);

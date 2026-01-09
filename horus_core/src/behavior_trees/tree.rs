@@ -11,8 +11,7 @@ use parking_lot::RwLock;
 
 use super::nodes::BTNode;
 use super::types::{
-    BehaviorTreeConfig, BehaviorTreeError, BehaviorTreeMetrics, Blackboard, NodeId, NodeStatus,
-    TickContext,
+    BehaviorTreeConfig, BehaviorTreeError, BehaviorTreeMetrics, Blackboard, NodeStatus, TickContext,
 };
 
 /// A complete behavior tree with execution management.
@@ -222,7 +221,9 @@ impl<C: Send + Sync> BehaviorTree<C> {
         if tick_duration > self.metrics.max_tick_time {
             self.metrics.max_tick_time = tick_duration;
         }
-        if tick_duration < self.metrics.min_tick_time || self.metrics.min_tick_time == Duration::ZERO {
+        if tick_duration < self.metrics.min_tick_time
+            || self.metrics.min_tick_time == Duration::ZERO
+        {
             self.metrics.min_tick_time = tick_duration;
         }
 
@@ -334,12 +335,16 @@ impl<C: Send + Sync + 'static> SharedBehaviorTree<C> {
     }
 
     /// Get a value from the blackboard.
-    pub fn blackboard_get<T: Clone + 'static>(&self, key: &str) -> Option<T> {
-        self.inner.read().blackboard.get(key)
+    pub fn blackboard_get(&self, key: &str) -> Option<super::types::BlackboardValue> {
+        self.inner.read().blackboard.get(key).cloned()
     }
 
     /// Set a value in the blackboard.
-    pub fn blackboard_set<T: Clone + Send + Sync + 'static>(&self, key: &str, value: T) {
+    pub fn blackboard_set(
+        &self,
+        key: impl Into<String>,
+        value: impl Into<super::types::BlackboardValue>,
+    ) {
         self.inner.write().blackboard.set(key, value);
     }
 
@@ -457,7 +462,8 @@ impl<C: Send + Sync + 'static> BehaviorTreeBuilder<C> {
         key: &str,
         value: T,
     ) -> Self {
-        self.initial_blackboard.insert(key.to_string(), Box::new(value));
+        self.initial_blackboard
+            .insert(key.to_string(), Box::new(value));
         self
     }
 
@@ -467,7 +473,7 @@ impl<C: Send + Sync + 'static> BehaviorTreeBuilder<C> {
             reason: "No root node specified".to_string(),
         })?;
 
-        let mut tree = BehaviorTree {
+        let tree = BehaviorTree {
             name: self.name,
             root,
             blackboard: Blackboard::new(),
@@ -559,7 +565,8 @@ impl TreeVisualizer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::behavior_trees::nodes::{ActionNode, SequenceNode, SelectorNode};
+    use crate::behavior_trees::nodes::{ActionNode, SelectorNode, SequenceNode};
+    use crate::behavior_trees::TickContext;
 
     struct TestContext {
         counter: i32,
@@ -567,7 +574,7 @@ mod tests {
 
     #[test]
     fn test_behavior_tree_basic() {
-        let root = ActionNode::new("increment", |ctx| {
+        let root = ActionNode::new("increment", |ctx: &mut TickContext<TestContext>| {
             ctx.context.counter += 1;
             NodeStatus::Success
         });
@@ -583,14 +590,20 @@ mod tests {
     #[test]
     fn test_behavior_tree_sequence() {
         let root = SequenceNode::new("sequence")
-            .add_child(ActionNode::new("a1", |ctx| {
-                ctx.context.counter += 1;
-                NodeStatus::Success
-            }))
-            .add_child(ActionNode::new("a2", |ctx| {
-                ctx.context.counter += 10;
-                NodeStatus::Success
-            }));
+            .add_child(ActionNode::new(
+                "a1",
+                |ctx: &mut TickContext<TestContext>| {
+                    ctx.context.counter += 1;
+                    NodeStatus::Success
+                },
+            ))
+            .add_child(ActionNode::new(
+                "a2",
+                |ctx: &mut TickContext<TestContext>| {
+                    ctx.context.counter += 10;
+                    NodeStatus::Success
+                },
+            ));
 
         let mut tree = BehaviorTree::new("test", root);
         let mut ctx = TestContext { counter: 0 };
@@ -602,7 +615,9 @@ mod tests {
 
     #[test]
     fn test_behavior_tree_metrics() {
-        let root = ActionNode::new("test", |_| NodeStatus::Success);
+        let root = ActionNode::new("test", |_: &mut TickContext<TestContext>| {
+            NodeStatus::Success
+        });
         let mut tree = BehaviorTree::new("test", root);
         let mut ctx = TestContext { counter: 0 };
 
@@ -617,9 +632,9 @@ mod tests {
 
     #[test]
     fn test_behavior_tree_blackboard() {
-        let root = ActionNode::new("use_blackboard", |ctx| {
-            if let Some(value) = ctx.blackboard.get::<i32>("target") {
-                ctx.context.counter = value;
+        let root = ActionNode::new("use_blackboard", |ctx: &mut TickContext<TestContext>| {
+            if let Some(value) = ctx.blackboard.get_int("target") {
+                ctx.context.counter = value as i32;
                 NodeStatus::Success
             } else {
                 NodeStatus::Failure
@@ -641,7 +656,10 @@ mod tests {
         let tree = BehaviorTreeBuilder::<TestContext>::new("test")
             .with_tick_rate(Duration::from_millis(100))
             .reset_on_complete(true)
-            .root(ActionNode::new("test", |_| NodeStatus::Success))
+            .root(ActionNode::new(
+                "test",
+                |_: &mut TickContext<TestContext>| NodeStatus::Success,
+            ))
             .build()
             .unwrap();
 
@@ -652,7 +670,7 @@ mod tests {
 
     #[test]
     fn test_shared_behavior_tree() {
-        let root = ActionNode::new("test", |ctx| {
+        let root = ActionNode::new("test", |ctx: &mut TickContext<TestContext>| {
             ctx.context.counter += 1;
             NodeStatus::Success
         });
@@ -676,15 +694,19 @@ mod tests {
 
     #[test]
     fn test_run_until_complete() {
-        let counter = std::cell::Cell::new(0);
-        let root = ActionNode::new("run_three_times", move |_| {
-            counter.set(counter.get() + 1);
-            if counter.get() >= 3 {
-                NodeStatus::Success
-            } else {
-                NodeStatus::Running
-            }
-        });
+        use std::sync::atomic::{AtomicI32, Ordering};
+        let counter = AtomicI32::new(0);
+        let root = ActionNode::new(
+            "run_three_times",
+            move |_: &mut TickContext<TestContext>| {
+                let val = counter.fetch_add(1, Ordering::SeqCst) + 1;
+                if val >= 3 {
+                    NodeStatus::Success
+                } else {
+                    NodeStatus::Running
+                }
+            },
+        );
 
         let mut tree = BehaviorTree::new("test", root);
         let mut ctx = TestContext { counter: 0 };
@@ -696,11 +718,22 @@ mod tests {
 
     #[test]
     fn test_tree_visualizer() {
-        let root = SequenceNode::new("main")
-            .add_child(ActionNode::new("step1", |_| NodeStatus::Success))
-            .add_child(SelectorNode::new("fallback")
-                .add_child(ActionNode::new("option1", |_| NodeStatus::Failure))
-                .add_child(ActionNode::new("option2", |_| NodeStatus::Success)));
+        let root = SequenceNode::<TestContext>::new("main")
+            .add_child(ActionNode::new(
+                "step1",
+                |_: &mut TickContext<TestContext>| NodeStatus::Success,
+            ))
+            .add_child(
+                SelectorNode::new("fallback")
+                    .add_child(ActionNode::new(
+                        "option1",
+                        |_: &mut TickContext<TestContext>| NodeStatus::Failure,
+                    ))
+                    .add_child(ActionNode::new(
+                        "option2",
+                        |_: &mut TickContext<TestContext>| NodeStatus::Success,
+                    )),
+            );
 
         let tree = BehaviorTree::new("test_tree", root);
         let ascii = TreeVisualizer::to_ascii(&tree);

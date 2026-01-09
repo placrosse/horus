@@ -6,6 +6,7 @@
 //! - [`Action`] - Trait defining an action with Goal/Feedback/Result types
 //! - [`GoalResponse`] / [`CancelResponse`] - Server responses to client requests
 
+use crate::core::LogSummary;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::Duration;
@@ -246,13 +247,34 @@ impl CancelResponse {
 /// ```
 pub trait Action: Send + Sync + 'static {
     /// The goal request type.
-    type Goal: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static;
+    type Goal: Clone
+        + fmt::Debug
+        + Send
+        + Sync
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + LogSummary
+        + 'static;
 
     /// The feedback type sent during execution.
-    type Feedback: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static;
+    type Feedback: Clone
+        + fmt::Debug
+        + Send
+        + Sync
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + LogSummary
+        + 'static;
 
     /// The result type sent on completion.
-    type Result: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static;
+    type Result: Clone
+        + fmt::Debug
+        + Send
+        + Sync
+        + Serialize
+        + for<'de> Deserialize<'de>
+        + LogSummary
+        + 'static;
 
     /// Action name (used for topic names).
     fn name() -> &'static str;

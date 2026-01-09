@@ -350,7 +350,7 @@ impl CanDiscovery {
 
     fn get_description(
         &self,
-        name: &str,
+        _name: &str,
         itype: &CanInterfaceType,
         driver: &Option<String>,
     ) -> Option<String> {

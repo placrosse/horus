@@ -610,7 +610,7 @@ impl StateMachineMetrics {
     }
 
     /// Record a successful transition.
-    pub fn record_transition(&mut self, from: &StateId, to: &StateId, duration_ns: u64) {
+    pub fn record_transition(&mut self, _from: &StateId, to: &StateId, duration_ns: u64) {
         self.transition_count += 1;
         self.successful_transitions += 1;
 

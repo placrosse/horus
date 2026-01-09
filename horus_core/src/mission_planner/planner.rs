@@ -11,10 +11,11 @@ use std::time::{Duration, Instant};
 use parking_lot::RwLock;
 
 use super::dag::{build_goal_dag, build_task_dag, ExecutionScheduler, GoalDAG, TaskDAG};
+#[cfg(test)]
+use super::types::GoalSpec;
 use super::types::{
-    ExecutionStatus, GoalFailurePolicy, GoalId, GoalSpec, MissionId, MissionMetrics,
-    MissionPlannerError, MissionSpec, MissionState, Priority, TaskCondition, TaskExecutor, TaskId,
-    TaskSpec,
+    ExecutionStatus, GoalFailurePolicy, GoalId, MissionId, MissionMetrics, MissionPlannerError,
+    MissionSpec, MissionState, Priority, TaskCondition, TaskExecutor, TaskId, TaskSpec,
 };
 
 // ============================================================================
@@ -182,6 +183,7 @@ impl Default for MissionPlannerConfig {
 // ============================================================================
 
 /// Runtime state for an active mission being executed.
+#[allow(dead_code)]
 struct ActiveMission {
     /// Mission state.
     state: MissionState,
@@ -225,6 +227,7 @@ impl ActiveMission {
     }
 
     /// Get the mission ID.
+    #[allow(dead_code)]
     fn id(&self) -> &MissionId {
         self.state.id()
     }
@@ -269,6 +272,7 @@ pub struct MissionPlanner {
     /// Execution metrics.
     metrics: MissionMetrics,
     /// Whether the planner is running.
+    #[allow(dead_code)]
     running: bool,
 }
 
@@ -1050,8 +1054,8 @@ impl MissionPlanner {
         // Extract retry count before releasing the borrow
         let retry_count = task_state.retry_count;
 
-        // Drop the mutable borrow before calling emit_event
-        drop(mission);
+        // Release the mutable borrow before calling emit_event
+        let _ = mission;
 
         self.metrics.record_retry();
 

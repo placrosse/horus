@@ -34,8 +34,8 @@
 //! ```
 
 use crate::actions::types::{
-    Action, ActionError, ActionFeedback, ActionResult, ActionServerConfig, CancelRequest,
-    CancelResponse, GoalId, GoalPriority, GoalRequest, GoalResponse, GoalStatus, GoalStatusUpdate,
+    Action, ActionFeedback, ActionResult, ActionServerConfig, CancelRequest, CancelResponse,
+    GoalId, GoalPriority, GoalRequest, GoalResponse, GoalStatus, GoalStatusUpdate,
     PreemptionPolicy,
 };
 use crate::communication::Link;
@@ -244,6 +244,7 @@ impl<A: Action> Clone for FeedbackSender<A> {
 }
 
 /// Internal state for tracking an active goal.
+#[allow(dead_code)]
 struct GoalState<A: Action> {
     goal: A::Goal,
     priority: GoalPriority,
@@ -257,8 +258,7 @@ struct GoalState<A: Action> {
 /// Callback types for action server.
 pub type GoalCallback<A> = Box<dyn Fn(&<A as Action>::Goal) -> GoalResponse + Send + Sync>;
 pub type CancelCallback = Box<dyn Fn(GoalId) -> CancelResponse + Send + Sync>;
-pub type ExecuteCallback<A> =
-    Box<dyn Fn(ServerGoalHandle<A>) -> GoalOutcome<A> + Send + Sync>;
+pub type ExecuteCallback<A> = Box<dyn Fn(ServerGoalHandle<A>) -> GoalOutcome<A> + Send + Sync>;
 
 /// Builder for creating action servers.
 ///
@@ -408,6 +408,7 @@ pub struct ActionServerNode<A: Action> {
     goal_queue: VecDeque<GoalRequest<A::Goal>>,
 
     // Result history for client queries
+    #[allow(dead_code)]
     result_history: VecDeque<(GoalId, ActionResult<A::Result>)>,
 
     // Metrics
@@ -491,7 +492,10 @@ where
                         A::name(),
                         request.goal_id
                     );
-                    self.reject_goal(request.goal_id, "Server busy, goal rejected by preemption policy");
+                    self.reject_goal(
+                        request.goal_id,
+                        "Server busy, goal rejected by preemption policy",
+                    );
                     return;
                 }
 
@@ -629,11 +633,7 @@ where
     /// Preempt an active goal.
     fn preempt_goal(&mut self, goal_id: GoalId) {
         if let Some(state) = self.active_goals.get(&goal_id) {
-            log::info!(
-                "ActionServer '{}': Preempting goal {}",
-                A::name(),
-                goal_id
-            );
+            log::info!("ActionServer '{}': Preempting goal {}", A::name(), goal_id);
             state.preempt_requested.store(true, Ordering::Release);
         }
     }
@@ -743,11 +743,7 @@ where
                 .collect();
 
             for goal_id in timed_out {
-                log::warn!(
-                    "ActionServer '{}': Goal {} timed out",
-                    A::name(),
-                    goal_id
-                );
+                log::warn!("ActionServer '{}': Goal {} timed out", A::name(), goal_id);
                 if let Some(state) = self.active_goals.get(&goal_id) {
                     // Signal timeout as abort
                     state.cancel_requested.store(true, Ordering::Release);
@@ -860,18 +856,28 @@ where
     }
 
     fn tick(&mut self, _ctx: Option<&mut NodeInfo>) {
-        // Process incoming goals
-        if let Some(ref link) = self.goal_link {
-            while let Some(goal_req) = link.recv(&mut None) {
-                self.handle_goal(goal_req);
-            }
+        // Collect incoming goals first to avoid borrow conflict
+        let goals: Vec<_> = if let Some(ref link) = self.goal_link {
+            std::iter::from_fn(|| link.recv(&mut None)).collect()
+        } else {
+            Vec::new()
+        };
+
+        // Process collected goals
+        for goal_req in goals {
+            self.handle_goal(goal_req);
         }
 
-        // Process cancel requests
-        if let Some(ref link) = self.cancel_link {
-            while let Some(cancel_req) = link.recv(&mut None) {
-                self.handle_cancel(cancel_req);
-            }
+        // Collect cancel requests first to avoid borrow conflict
+        let cancels: Vec<_> = if let Some(ref link) = self.cancel_link {
+            std::iter::from_fn(|| link.recv(&mut None)).collect()
+        } else {
+            Vec::new()
+        };
+
+        // Process collected cancel requests
+        for cancel_req in cancels {
+            self.handle_cancel(cancel_req);
         }
 
         // Check for timed-out goals
@@ -974,16 +980,13 @@ mod tests {
 
     #[test]
     fn test_goal_outcome() {
-        let outcome: GoalOutcome<TestAction> =
-            GoalOutcome::Succeeded(TestResult { success: true });
+        let outcome: GoalOutcome<TestAction> = GoalOutcome::Succeeded(TestResult { success: true });
         assert_eq!(outcome.status(), GoalStatus::Succeeded);
 
-        let outcome: GoalOutcome<TestAction> =
-            GoalOutcome::Aborted(TestResult { success: false });
+        let outcome: GoalOutcome<TestAction> = GoalOutcome::Aborted(TestResult { success: false });
         assert_eq!(outcome.status(), GoalStatus::Aborted);
 
-        let outcome: GoalOutcome<TestAction> =
-            GoalOutcome::Canceled(TestResult { success: false });
+        let outcome: GoalOutcome<TestAction> = GoalOutcome::Canceled(TestResult { success: false });
         assert_eq!(outcome.status(), GoalStatus::Canceled);
 
         let outcome: GoalOutcome<TestAction> =

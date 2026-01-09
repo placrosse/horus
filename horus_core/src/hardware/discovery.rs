@@ -44,6 +44,7 @@ use super::spi::{SpiBus, SpiDiscovery};
 
 /// Execute a probing operation with a timeout.
 /// Returns None if the operation times out or fails.
+#[allow(dead_code)]
 fn probe_with_timeout<T, F>(timeout: Duration, probe_fn: F) -> Option<T>
 where
     F: FnOnce() -> Option<T> + Send + 'static,
@@ -425,6 +426,7 @@ impl Default for DiscoveryOptions {
 }
 
 /// Main hardware discovery interface
+#[allow(dead_code)]
 pub struct HardwareDiscovery {
     /// USB discovery
     usb_discovery: UsbDiscovery,
@@ -534,7 +536,7 @@ impl HardwareDiscovery {
         progress: Option<ProgressCallback>,
     ) -> DiscoveryReport {
         let start = Instant::now();
-        let mut errors = Vec::new();
+        let errors = Vec::new();
         let timeout = self.options.probe_timeout;
 
         // Report progress

@@ -737,8 +737,14 @@ fn main() {
             // In CI environment, we allow fallback to prevent build failure
             if std::env::var("CI").is_ok() || std::env::var("GITHUB_ACTIONS").is_ok() {
                 eprintln!("\n{}", format!("WARNING: {}", e).bright_yellow());
-                eprintln!("{}", "CPU frequency detection failed in CI environment.".bright_yellow());
-                eprintln!("{}", "Falling back to estimated frequency (2.5 GHz).".bright_yellow());
+                eprintln!(
+                    "{}",
+                    "CPU frequency detection failed in CI environment.".bright_yellow()
+                );
+                eprintln!(
+                    "{}",
+                    "Falling back to estimated frequency (2.5 GHz).".bright_yellow()
+                );
                 (2.5, "ci_estimate")
             } else {
                 eprintln!("\n{}", format!("FATAL ERROR: {}", e).bright_red().bold());

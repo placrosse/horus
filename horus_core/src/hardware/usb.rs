@@ -335,6 +335,7 @@ impl Default for UsbDiscovery {
 }
 
 /// Well-known USB Vendor IDs
+#[allow(dead_code)]
 pub mod vendors {
     /// Arduino LLC
     pub const ARDUINO: u16 = 0x2341;

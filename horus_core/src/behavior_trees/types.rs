@@ -10,11 +10,9 @@
 //! - **Blackboard**: Shared data storage for nodes to communicate
 
 use serde::{Deserialize, Serialize};
-use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// The status returned by a behavior tree node after being ticked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -344,6 +342,18 @@ pub struct BehaviorTreeConfig {
     pub debug_logging: bool,
     /// Maximum tree depth (to prevent infinite recursion).
     pub max_depth: usize,
+    /// Tick rate (time between ticks).
+    #[serde(with = "optional_duration_serde", default)]
+    pub tick_rate: Option<Duration>,
+    /// Maximum time allowed for a single tick.
+    #[serde(with = "optional_duration_serde", default)]
+    pub max_tick_time: Option<Duration>,
+    /// Whether to reset the tree when it completes (success or failure).
+    pub reset_on_complete: bool,
+    /// Whether to collect detailed metrics.
+    pub collect_metrics: bool,
+    /// Enable debug mode (verbose output).
+    pub debug_mode: bool,
 }
 
 impl Default for BehaviorTreeConfig {
@@ -354,6 +364,11 @@ impl Default for BehaviorTreeConfig {
             reset_on_restart: true,
             debug_logging: false,
             max_depth: 100,
+            tick_rate: None,
+            max_tick_time: None,
+            reset_on_complete: false,
+            collect_metrics: true,
+            debug_mode: false,
         }
     }
 }
@@ -380,8 +395,32 @@ impl BehaviorTreeConfig {
     }
 }
 
+/// Serde helper for optional Duration fields.
+mod optional_duration_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::time::Duration;
+
+    pub fn serialize<S>(opt: &Option<Duration>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match opt {
+            Some(duration) => duration.as_nanos().serialize(serializer),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let opt: Option<u128> = Option::deserialize(deserializer)?;
+        Ok(opt.map(|nanos| Duration::from_nanos(nanos as u64)))
+    }
+}
+
 /// Metrics for behavior tree monitoring.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BehaviorTreeMetrics {
     /// Total number of ticks.
     pub total_ticks: u64,
@@ -389,10 +428,21 @@ pub struct BehaviorTreeMetrics {
     pub success_count: u64,
     /// Number of failures.
     pub failure_count: u64,
+    /// Number of times the tree was in running state.
+    pub running_count: u64,
     /// Average tick duration (nanoseconds).
     pub avg_tick_duration_ns: u64,
     /// Maximum tick duration (nanoseconds).
     pub max_tick_duration_ns: u64,
+    /// Total time spent ticking.
+    #[serde(with = "duration_serde")]
+    pub total_tick_time: Duration,
+    /// Maximum tick time.
+    #[serde(with = "duration_serde")]
+    pub max_tick_time: Duration,
+    /// Minimum tick time.
+    #[serde(with = "duration_serde")]
+    pub min_tick_time: Duration,
     /// Node execution counts by ID.
     pub node_exec_counts: HashMap<String, u64>,
     /// Node success counts by ID.
@@ -401,10 +451,34 @@ pub struct BehaviorTreeMetrics {
     pub node_failure_counts: HashMap<String, u64>,
 }
 
+impl Default for BehaviorTreeMetrics {
+    fn default() -> Self {
+        Self {
+            total_ticks: 0,
+            success_count: 0,
+            failure_count: 0,
+            running_count: 0,
+            avg_tick_duration_ns: 0,
+            max_tick_duration_ns: 0,
+            total_tick_time: Duration::ZERO,
+            max_tick_time: Duration::ZERO,
+            min_tick_time: Duration::ZERO,
+            node_exec_counts: HashMap::new(),
+            node_success_counts: HashMap::new(),
+            node_failure_counts: HashMap::new(),
+        }
+    }
+}
+
 impl BehaviorTreeMetrics {
     /// Create new empty metrics.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Reset all metrics to their default values.
+    pub fn reset(&mut self) {
+        *self = Self::default();
     }
 
     /// Record a tick.
@@ -451,6 +525,27 @@ impl BehaviorTreeMetrics {
     }
 }
 
+/// Serde helper for Duration fields.
+mod duration_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::time::Duration;
+
+    pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        duration.as_nanos().serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let nanos: u128 = u128::deserialize(deserializer)?;
+        Ok(Duration::from_nanos(nanos as u64))
+    }
+}
+
 /// Error type for behavior tree operations.
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum BehaviorTreeError {
@@ -459,6 +554,12 @@ pub enum BehaviorTreeError {
 
     #[error("Invalid tree structure: {0}")]
     InvalidStructure(String),
+
+    #[error("Invalid tree: {reason}")]
+    InvalidTree { reason: String },
+
+    #[error("Tree is already running")]
+    AlreadyRunning,
 
     #[error("Maximum depth exceeded: {depth} > {max}")]
     MaxDepthExceeded { depth: usize, max: usize },
@@ -494,6 +595,8 @@ pub enum NodeType {
     Parallel,
     /// Decorator that modifies child behavior.
     Decorator,
+    /// A subtree reference (nested behavior tree).
+    Subtree,
     /// Custom node type.
     Custom(u32),
 }
@@ -507,6 +610,7 @@ impl fmt::Display for NodeType {
             NodeType::Selector => write!(f, "Selector"),
             NodeType::Parallel => write!(f, "Parallel"),
             NodeType::Decorator => write!(f, "Decorator"),
+            NodeType::Subtree => write!(f, "Subtree"),
             NodeType::Custom(id) => write!(f, "Custom({})", id),
         }
     }
@@ -530,7 +634,7 @@ impl Default for ParallelPolicy {
 }
 
 /// Decorator type for modifying child behavior.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum DecoratorType {
     /// Invert the child's result.
     Inverter,
@@ -538,10 +642,10 @@ pub enum DecoratorType {
     Succeeder,
     /// Always return failure.
     Failer,
-    /// Repeat N times.
-    Repeat(u32),
+    /// Repeat N times (alias: Repeat).
+    Repeater(usize),
     /// Repeat until failure.
-    RepeatUntilFailure,
+    RepeatUntilFail,
     /// Repeat until success.
     RepeatUntilSuccess,
     /// Retry on failure up to N times.
@@ -552,6 +656,8 @@ pub enum DecoratorType {
     RunOnce,
     /// Delay before running child.
     Delay(Duration),
+    /// Cooldown between executions.
+    Cooldown(Duration),
     /// Force success after N failures.
     ForceSuccessAfter(u32),
 }
@@ -562,13 +668,14 @@ impl fmt::Display for DecoratorType {
             DecoratorType::Inverter => write!(f, "Inverter"),
             DecoratorType::Succeeder => write!(f, "Succeeder"),
             DecoratorType::Failer => write!(f, "Failer"),
-            DecoratorType::Repeat(n) => write!(f, "Repeat({})", n),
-            DecoratorType::RepeatUntilFailure => write!(f, "RepeatUntilFailure"),
+            DecoratorType::Repeater(n) => write!(f, "Repeater({})", n),
+            DecoratorType::RepeatUntilFail => write!(f, "RepeatUntilFail"),
             DecoratorType::RepeatUntilSuccess => write!(f, "RepeatUntilSuccess"),
             DecoratorType::Retry(n) => write!(f, "Retry({})", n),
             DecoratorType::Timeout(d) => write!(f, "Timeout({:?})", d),
             DecoratorType::RunOnce => write!(f, "RunOnce"),
             DecoratorType::Delay(d) => write!(f, "Delay({:?})", d),
+            DecoratorType::Cooldown(d) => write!(f, "Cooldown({:?})", d),
             DecoratorType::ForceSuccessAfter(n) => write!(f, "ForceSuccessAfter({})", n),
         }
     }
@@ -676,8 +783,8 @@ mod tests {
 
     #[test]
     fn test_decorator_types() {
-        let d = DecoratorType::Repeat(5);
-        assert_eq!(format!("{}", d), "Repeat(5)");
+        let d = DecoratorType::Repeater(5);
+        assert_eq!(format!("{}", d), "Repeater(5)");
 
         let d = DecoratorType::Timeout(Duration::from_secs(10));
         assert!(format!("{}", d).contains("Timeout"));

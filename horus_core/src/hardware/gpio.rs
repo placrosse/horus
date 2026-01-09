@@ -289,6 +289,7 @@ impl Default for GpioDiscovery {
 }
 
 /// Get platform-specific GPIO chip info
+#[allow(dead_code)]
 pub fn identify_platform_gpio() -> Option<String> {
     // Read device tree compatible string
     let compatible = fs::read_to_string("/proc/device-tree/compatible").ok()?;

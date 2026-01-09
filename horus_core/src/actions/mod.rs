@@ -128,8 +128,8 @@ pub mod types;
 
 // Re-export main types at module level
 pub use client::{
-    ActionClientBuilder, ActionClientMetrics, ActionClientNode, ClientGoalHandle,
-    FeedbackCallback, ResultCallback, StatusCallback, SyncActionClient,
+    ActionClientBuilder, ActionClientMetrics, ActionClientNode, ClientGoalHandle, FeedbackCallback,
+    ResultCallback, StatusCallback, SyncActionClient,
 };
 pub use server::{
     ActionServerBuilder, ActionServerMetrics, ActionServerNode, CancelCallback, ExecuteCallback,
