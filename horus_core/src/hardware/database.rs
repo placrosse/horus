@@ -1732,6 +1732,7 @@ impl DeviceDatabase {
         self.vendors.insert(0x2886, "Seeed");
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn add_usb(
         &mut self,
         vid: u16,

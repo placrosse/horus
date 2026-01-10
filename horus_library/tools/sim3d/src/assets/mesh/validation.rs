@@ -170,7 +170,7 @@ fn validate_index_buffer_u16(indices: &[u16], vertex_count: u16, report: &mut Va
         return;
     }
 
-    if indices.len() % 3 != 0 {
+    if !indices.len().is_multiple_of(3) {
         report.add_error(format!(
             "Index count ({}) is not divisible by 3",
             indices.len()
@@ -195,7 +195,7 @@ fn validate_index_buffer_u32(indices: &[u32], vertex_count: usize, report: &mut 
         return;
     }
 
-    if indices.len() % 3 != 0 {
+    if !indices.len().is_multiple_of(3) {
         report.add_error(format!(
             "Index count ({}) is not divisible by 3",
             indices.len()

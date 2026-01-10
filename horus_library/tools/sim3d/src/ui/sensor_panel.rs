@@ -108,7 +108,7 @@ impl Default for SensorConfig {
 }
 
 /// Sensor panel configuration resource
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct SensorPanelConfig {
     /// Show advanced noise parameters
     pub show_advanced: bool,
@@ -116,16 +116,6 @@ pub struct SensorPanelConfig {
     pub type_filter: Option<SensorType>,
     /// Expand all sensors in tree view
     pub expand_all: bool,
-}
-
-impl Default for SensorPanelConfig {
-    fn default() -> Self {
-        Self {
-            show_advanced: false,
-            type_filter: None,
-            expand_all: false,
-        }
-    }
 }
 
 /// Global sensor settings resource

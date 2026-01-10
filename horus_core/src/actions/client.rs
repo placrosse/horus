@@ -749,11 +749,9 @@ where
         let goals = self.inner.goals.read();
         for (_, state) in goals.iter() {
             let state = state.read();
-            if state.status.is_terminal() {
-                if state.status.is_success() {
-                    // Note: This would double-count on subsequent ticks
-                    // A proper implementation would track which goals we've counted
-                }
+            if state.status.is_terminal() && state.status.is_success() {
+                // Note: This would double-count on subsequent ticks
+                // A proper implementation would track which goals we've counted
             }
         }
     }

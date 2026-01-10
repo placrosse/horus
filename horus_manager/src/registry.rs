@@ -3601,17 +3601,17 @@ impl RegistryClient {
 // Public wrapper functions for use from main.rs
 // ============================================================================
 
-/// Public wrapper to add features to Cargo.toml (for horus drivers add)
+/// Public wrapper to add features to Cargo.toml (for horus driver add)
 pub fn add_features_to_cargo_toml_pub(workspace_path: &Path, features: &[String]) -> Result<()> {
     add_features_to_cargo_toml(workspace_path, features)
 }
 
-/// Public wrapper to add cargo dependencies to Cargo.toml (for horus drivers add)
+/// Public wrapper to add cargo dependencies to Cargo.toml (for horus driver add)
 pub fn add_cargo_deps_pub(workspace_path: &Path, deps: &[String]) -> Result<()> {
     add_cargo_deps_to_cargo_toml(workspace_path, deps)
 }
 
-/// Public wrapper to handle system dependencies (for horus drivers add)
+/// Public wrapper to handle system dependencies (for horus driver add)
 pub fn handle_system_deps_pub(deps: &[String]) -> Result<()> {
     handle_system_dependencies(deps)
 }

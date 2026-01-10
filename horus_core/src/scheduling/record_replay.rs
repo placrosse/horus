@@ -390,7 +390,7 @@ impl NodeRecorder {
         }
 
         // Check recording interval
-        if tick % self.config.interval != 0 {
+        if !tick.is_multiple_of(self.config.interval) {
             self.current_snapshot = None;
             return;
         }

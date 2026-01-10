@@ -16,6 +16,7 @@ use std::process::Command;
 use crate::commands::run;
 
 /// Check if Cargo.toml needs regeneration
+#[allow(clippy::ptr_arg)]
 fn needs_rebuild(horus_dir: &PathBuf) -> bool {
     let cargo_toml = horus_dir.join("Cargo.toml");
     let horus_yaml = PathBuf::from("horus.yaml");

@@ -336,22 +336,17 @@ impl Default for GoalPriority {
 }
 
 /// Preemption policy for action servers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum PreemptionPolicy {
     /// New goals are rejected while one is active.
     RejectNew,
     /// New goals preempt (cancel) active goals.
+    #[default]
     PreemptOld,
     /// Goals have priority - higher priority preempts lower.
     Priority,
     /// Queue goals (FIFO) up to a maximum size.
     Queue { max_size: usize },
-}
-
-impl Default for PreemptionPolicy {
-    fn default() -> Self {
-        PreemptionPolicy::PreemptOld
-    }
 }
 
 /// Configuration for an action server.

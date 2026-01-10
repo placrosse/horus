@@ -118,14 +118,14 @@ fn parse_since(since: Option<&str>) -> HorusResult<Option<SystemTime>> {
         None => return Ok(None),
     };
 
-    let (num_str, unit) = if since.ends_with('s') {
-        (&since[..since.len() - 1], "s")
-    } else if since.ends_with('m') {
-        (&since[..since.len() - 1], "m")
-    } else if since.ends_with('h') {
-        (&since[..since.len() - 1], "h")
-    } else if since.ends_with('d') {
-        (&since[..since.len() - 1], "d")
+    let (num_str, unit) = if let Some(stripped) = since.strip_suffix('s') {
+        (stripped, "s")
+    } else if let Some(stripped) = since.strip_suffix('m') {
+        (stripped, "m")
+    } else if let Some(stripped) = since.strip_suffix('h') {
+        (stripped, "h")
+    } else if let Some(stripped) = since.strip_suffix('d') {
+        (stripped, "d")
     } else {
         return Err(HorusError::Config(format!(
             "Invalid time format: {}. Use format like '5m', '1h', '30s'",
@@ -167,7 +167,7 @@ fn view_shm_logs(
             if path.extension().map(|e| e == "log").unwrap_or(false) {
                 if let Ok(file) = File::open(&path) {
                     let reader = BufReader::new(file);
-                    for line in reader.lines().flatten() {
+                    for line in reader.lines().map_while(Result::ok) {
                         if let Some(entry) = parse_log_line(&line) {
                             // Apply filters
                             if entry.level < min_level {
@@ -235,7 +235,7 @@ fn view_file_logs(
                 if path.extension().map(|e| e == "log").unwrap_or(false) {
                     if let Ok(file) = File::open(&path) {
                         let reader = BufReader::new(file);
-                        for line in reader.lines().flatten() {
+                        for line in reader.lines().map_while(Result::ok) {
                             if let Some(entry) = parse_log_line(&line) {
                                 if entry.level < min_level {
                                     continue;
@@ -421,7 +421,7 @@ fn format_timestamp(time: SystemTime) -> String {
     let duration = time.duration_since(UNIX_EPOCH).unwrap_or_default();
     let secs = duration.as_secs();
     let datetime =
-        chrono::DateTime::from_timestamp(secs as i64, 0).unwrap_or_else(|| chrono::Utc::now());
+        chrono::DateTime::from_timestamp(secs as i64, 0).unwrap_or_else(chrono::Utc::now);
     datetime.format("%H:%M:%S").to_string()
 }
 

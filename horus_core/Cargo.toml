@@ -71,6 +71,9 @@ futures = { version = "0.3", optional = true }
 # Zenoh transport (optional)
 zenoh = { version = "1.0", optional = true }
 
+# Dynamic plugin loading (optional)
+libloading = { workspace = true, optional = true }
+
 # Serialization formats for Zenoh (optional)
 cdr-encoding = { version = "0.10", optional = true }  # ROS2/DDS CDR format
 byteorder = { version = "1.5", optional = true }      # For CDR byte order
@@ -112,3 +115,6 @@ cloud-all = ["cloud-s3", "cloud-gcs", "cloud-azure"]  # Enable all cloud provide
 # Zenoh transport for multi-robot and ROS2 interop
 zenoh-transport = ["zenoh", "rmp-serde"]  # Includes MessagePack support
 zenoh-ros2 = ["zenoh-transport", "cdr-encoding", "byteorder"]  # Zenoh with ROS2 CDR compatibility
+
+# Dynamic driver plugin loading
+dynamic-plugins = ["libloading"]

@@ -110,6 +110,7 @@ impl CategoryFilter {
     }
 
     /// Create a filter from a comma-separated list of category names
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         let mut filter = Self::default();
         for part in s.split(',') {

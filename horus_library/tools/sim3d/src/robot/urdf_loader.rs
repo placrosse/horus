@@ -1269,7 +1269,7 @@ fn extract_mesh_data_for_collider(mesh: &Mesh) -> Option<(Vec<Vec3>, Vec<[u32; 3
     };
 
     // Convert to triangle triplets
-    if index_vec.len() % 3 != 0 {
+    if !index_vec.len().is_multiple_of(3) {
         return None;
     }
 

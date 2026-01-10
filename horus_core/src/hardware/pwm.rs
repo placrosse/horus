@@ -114,8 +114,8 @@ impl PwmDiscovery {
         if let Ok(entries) = fs::read_dir("/sys/class/pwm") {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with("pwmchip") {
-                    if let Ok(chip_num) = name[7..].parse::<u8>() {
+                if let Some(suffix) = name.strip_prefix("pwmchip") {
+                    if let Ok(chip_num) = suffix.parse::<u8>() {
                         if let Some(chip) = self.probe_chip(chip_num, entry.path()) {
                             self.chips.push(chip);
                         }
@@ -175,6 +175,7 @@ impl PwmDiscovery {
         })
     }
 
+    #[allow(clippy::ptr_arg)]
     fn scan_channels(&self, chip_number: u8, chip_path: &PathBuf, npwm: u32) -> Vec<PwmChannel> {
         let mut channels = Vec::new();
 
@@ -208,6 +209,7 @@ impl PwmDiscovery {
         channels
     }
 
+    #[allow(clippy::ptr_arg)]
     fn get_device_name(&self, chip_path: &PathBuf) -> Option<String> {
         // Try device tree name
         let of_name = chip_path.join("device/of_node/name");
@@ -229,6 +231,7 @@ impl PwmDiscovery {
         None
     }
 
+    #[allow(clippy::ptr_arg)]
     fn get_controller_type(&self, chip_path: &PathBuf) -> Option<String> {
         // Try driver name
         let driver_link = chip_path.join("device/driver");

@@ -81,8 +81,10 @@ impl Goal {
 /// Goal status enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum GoalStatus {
     /// Goal is pending execution
+    #[default]
     Pending = 0,
     /// Goal is actively being pursued
     Active = 1,
@@ -96,12 +98,6 @@ pub enum GoalStatus {
     Preempted = 5,
     /// Goal timed out
     TimedOut = 6,
-}
-
-impl Default for GoalStatus {
-    fn default() -> Self {
-        Self::Pending
-    }
 }
 
 /// Goal status feedback

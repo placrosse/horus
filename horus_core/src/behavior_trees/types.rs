@@ -617,20 +617,15 @@ impl fmt::Display for NodeType {
 }
 
 /// Policy for parallel node completion.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ParallelPolicy {
     /// Succeed if all children succeed.
+    #[default]
     RequireAll,
     /// Succeed if any child succeeds.
     RequireOne,
     /// Succeed if at least N children succeed.
     RequireN(usize),
-}
-
-impl Default for ParallelPolicy {
-    fn default() -> Self {
-        ParallelPolicy::RequireAll
-    }
 }
 
 /// Decorator type for modifying child behavior.

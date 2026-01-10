@@ -179,20 +179,15 @@ impl ZenohConfig {
 }
 
 /// Zenoh session mode
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ZenohMode {
     /// Peer mode: discover and connect to other peers
+    #[default]
     Peer,
     /// Client mode: connect only to routers
     Client,
     /// Router mode: accept connections from clients and peers
     Router,
-}
-
-impl Default for ZenohMode {
-    fn default() -> Self {
-        Self::Peer
-    }
 }
 
 /// QoS settings for Zenoh
@@ -473,37 +468,27 @@ impl HistoryPolicy {
 }
 
 /// Durability policy for QoS
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Durability {
     /// No historical data for late joiners
+    #[default]
     Volatile,
     /// Publisher keeps historical data for late-joining subscribers
     TransientLocal,
 }
 
-impl Default for Durability {
-    fn default() -> Self {
-        Self::Volatile
-    }
-}
-
 /// Liveliness policy for QoS
 ///
 /// Configures how entities assert their presence in the system.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Liveliness {
     /// System automatically asserts liveliness
+    #[default]
     Automatic,
     /// User must manually assert liveliness on the participant
     ManualByParticipant,
     /// User must manually assert liveliness on each topic
     ManualByTopic,
-}
-
-impl Default for Liveliness {
-    fn default() -> Self {
-        Self::Automatic
-    }
 }
 
 impl Liveliness {
@@ -532,9 +517,10 @@ pub enum CongestionControl {
 }
 
 /// Serialization format for messages
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SerializationFormat {
     /// Bincode (HORUS native, fastest)
+    #[default]
     Bincode,
     /// CDR (ROS2 compatible)
     Cdr,
@@ -542,12 +528,6 @@ pub enum SerializationFormat {
     Json,
     /// MessagePack (compact, cross-language)
     MessagePack,
-}
-
-impl Default for SerializationFormat {
-    fn default() -> Self {
-        Self::Bincode
-    }
 }
 
 #[cfg(test)]

@@ -83,8 +83,10 @@ impl Heartbeat {
 /// Status level enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum StatusLevel {
     /// Everything is OK
+    #[default]
     Ok = 0,
     /// Warning condition
     Warn = 1,
@@ -92,12 +94,6 @@ pub enum StatusLevel {
     Error = 2,
     /// Fatal error (system should stop)
     Fatal = 3,
-}
-
-impl Default for StatusLevel {
-    fn default() -> Self {
-        Self::Ok
-    }
 }
 
 /// System status message
@@ -491,8 +487,10 @@ impl DiagnosticReport {
 /// Represents the current execution state of a HORUS node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum NodeState {
     /// Node created but not started
+    #[default]
     Idle = 0,
     /// Running initialization
     Initializing = 1,
@@ -504,12 +502,6 @@ pub enum NodeState {
     Stopped = 4,
     /// Error or crashed state
     Error = 5,
-}
-
-impl Default for NodeState {
-    fn default() -> Self {
-        Self::Idle
-    }
 }
 
 impl NodeState {
@@ -531,6 +523,7 @@ impl NodeState {
 /// Indicates the operational health of a node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum HealthStatus {
     /// Operating normally
     Healthy = 0,
@@ -541,13 +534,8 @@ pub enum HealthStatus {
     /// Fatal errors, about to crash or unresponsive
     Critical = 3,
     /// Status unknown (no heartbeat received)
+    #[default]
     Unknown = 4,
-}
-
-impl Default for HealthStatus {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 impl HealthStatus {

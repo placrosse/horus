@@ -124,10 +124,7 @@ impl<C> StateMachine<C> {
     /// Add a transition to the machine.
     pub fn add_transition(mut self, transition: Transition<C>) -> Self {
         let from = transition.config.from.clone();
-        self.transitions
-            .entry(from)
-            .or_insert_with(Vec::new)
-            .push(transition);
+        self.transitions.entry(from).or_default().push(transition);
         self
     }
 

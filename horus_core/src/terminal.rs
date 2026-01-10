@@ -107,6 +107,35 @@ macro_rules! terminal_print {
     };
 }
 
+/// Print a line to stderr, using `\r\n` if in raw terminal mode.
+///
+/// This function should be used instead of `eprintln!` when output might
+/// occur while the terminal is in raw mode.
+#[inline]
+pub fn eprint_line(msg: &str) {
+    use std::io::Write;
+    if is_raw_mode() {
+        let _ = write!(std::io::stderr(), "{}\r\n", msg);
+    } else {
+        eprintln!("{}", msg);
+    }
+    let _ = std::io::stderr().flush();
+}
+
+/// A macro similar to `eprintln!` that handles raw terminal mode correctly.
+///
+/// When the terminal is in raw mode, this macro will use `\r\n` line endings
+/// instead of just `\n` to prevent the "staircase effect".
+#[macro_export]
+macro_rules! terminal_eprintln {
+    () => {
+        $crate::terminal::eprint_line("")
+    };
+    ($($arg:tt)*) => {
+        $crate::terminal::eprint_line(&format!($($arg)*))
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

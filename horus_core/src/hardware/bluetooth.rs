@@ -147,8 +147,8 @@ impl BluetoothDiscovery {
         if let Ok(entries) = fs::read_dir("/sys/class/bluetooth") {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with("hci") {
-                    if let Ok(hci_num) = name[3..].parse::<u8>() {
+                if let Some(suffix) = name.strip_prefix("hci") {
+                    if let Ok(hci_num) = suffix.parse::<u8>() {
                         if let Some(adapter) = self.probe_adapter(hci_num, entry.path()) {
                             self.adapters.push(adapter);
                         }
@@ -222,6 +222,7 @@ impl BluetoothDiscovery {
         })
     }
 
+    #[allow(clippy::ptr_arg)]
     fn detect_adapter_type(&self, sysfs_path: &PathBuf) -> BluetoothAdapterType {
         // Check device subsystem
         let device_link = sysfs_path.join("device");
@@ -263,6 +264,7 @@ impl BluetoothDiscovery {
         BluetoothState::Unknown
     }
 
+    #[allow(clippy::ptr_arg)]
     fn get_manufacturer(&self, sysfs_path: &PathBuf) -> Option<String> {
         // Try USB manufacturer
         let usb_mfr = sysfs_path.join("device/manufacturer");
@@ -322,6 +324,7 @@ impl BluetoothDiscovery {
         }
     }
 
+    #[allow(clippy::ptr_arg)]
     fn get_bt_version(&self, sysfs_path: &PathBuf) -> Option<String> {
         // Try to read HCI version
         let hci_version = sysfs_path.join("hci_version");
@@ -365,6 +368,7 @@ impl BluetoothDiscovery {
         }
     }
 
+    #[allow(clippy::ptr_arg)]
     fn check_ble_support(&self, sysfs_path: &PathBuf) -> bool {
         // BLE is supported from Bluetooth 4.0+
         if let Some(ver) = self.get_bt_version(sysfs_path) {
@@ -378,6 +382,7 @@ impl BluetoothDiscovery {
         le_states.exists()
     }
 
+    #[allow(clippy::ptr_arg)]
     fn scan_connected_devices(&self, sysfs_path: &PathBuf) -> Vec<BluetoothDevice> {
         let mut devices = Vec::new();
 
@@ -397,6 +402,7 @@ impl BluetoothDiscovery {
         devices
     }
 
+    #[allow(clippy::ptr_arg)]
     fn probe_device(&self, device_path: &PathBuf, address: &str) -> Option<BluetoothDevice> {
         let name = self.read_sysfs_string(&device_path.join("name"));
 

@@ -63,11 +63,7 @@ pub fn list_topics(verbose: bool, json: bool) -> HorusResult<()> {
             if let Some(ref msg_type) = topic.message_type {
                 println!("    {} {}", "Type:".dimmed(), msg_type);
             }
-            println!(
-                "    {} {} Hz",
-                "Rate:".dimmed(),
-                format!("{:.1}", topic.message_rate_hz)
-            );
+            println!("    {} {:.1} Hz", "Rate:".dimmed(), topic.message_rate_hz);
             if !topic.publishers.is_empty() {
                 println!(
                     "    {} {}",

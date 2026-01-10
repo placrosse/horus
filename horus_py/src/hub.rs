@@ -649,7 +649,7 @@ impl PyHub {
                 let sent = py.allow_threads(|| {
                     let hub = hub_ref.write().unwrap();
                     cmds.into_iter()
-                        .filter(|cmd| hub.send(cmd.clone(), &mut None).is_ok())
+                        .filter(|cmd| hub.send(*cmd, &mut None).is_ok())
                         .count()
                 });
                 Ok(sent)
@@ -664,7 +664,7 @@ impl PyHub {
                     let hub = hub_ref.write().unwrap();
                     poses
                         .into_iter()
-                        .filter(|pose| hub.send(pose.clone(), &mut None).is_ok())
+                        .filter(|pose| hub.send(*pose, &mut None).is_ok())
                         .count()
                 });
                 Ok(sent)
@@ -678,7 +678,7 @@ impl PyHub {
                 let sent = py.allow_threads(|| {
                     let hub = hub_ref.write().unwrap();
                     imus.into_iter()
-                        .filter(|imu| hub.send(imu.clone(), &mut None).is_ok())
+                        .filter(|imu| hub.send(*imu, &mut None).is_ok())
                         .count()
                 });
                 Ok(sent)
@@ -693,7 +693,7 @@ impl PyHub {
                     let hub = hub_ref.write().unwrap();
                     odoms
                         .into_iter()
-                        .filter(|odom| hub.send(odom.clone(), &mut None).is_ok())
+                        .filter(|odom| hub.send(*odom, &mut None).is_ok())
                         .count()
                 });
                 Ok(sent)
@@ -737,7 +737,7 @@ impl PyHub {
                 let sent = py.allow_threads(|| {
                     let hub = hub_ref.write().unwrap();
                     msgs.into_iter()
-                        .filter(|msg| hub.send(msg.clone(), &mut None).is_ok())
+                        .filter(|msg| hub.send(*msg, &mut None).is_ok())
                         .count()
                 });
                 Ok(sent)

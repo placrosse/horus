@@ -10,12 +10,14 @@ use serde_arrays;
 /// Image encoding formats
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum ImageEncoding {
     /// 8-bit monochrome
     Mono8 = 0,
     /// 16-bit monochrome
     Mono16 = 1,
     /// 8-bit RGB (3 channels)
+    #[default]
     Rgb8 = 2,
     /// 8-bit BGR (3 channels, OpenCV format)
     Bgr8 = 3,
@@ -33,12 +35,6 @@ pub enum ImageEncoding {
     BayerRggb8 = 9,
     /// 16-bit depth image (millimeters)
     Depth16 = 10,
-}
-
-impl Default for ImageEncoding {
-    fn default() -> Self {
-        Self::Rgb8
-    }
 }
 
 /// Raw image data message

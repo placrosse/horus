@@ -95,7 +95,7 @@ pub fn run_launch(file: &Path, dry_run: bool, namespace: Option<String>) -> Horu
     }
 
     // Read and parse the launch file
-    let content = std::fs::read_to_string(file).map_err(|e| HorusError::Io(e))?;
+    let content = std::fs::read_to_string(file).map_err(HorusError::Io)?;
 
     let config: LaunchConfig = serde_yaml::from_str(&content)
         .map_err(|e| HorusError::Config(format!("Failed to parse launch file: {}", e)))?;
@@ -487,7 +487,7 @@ pub fn list_launch_nodes(file: &Path) -> HorusResult<()> {
         )));
     }
 
-    let content = std::fs::read_to_string(file).map_err(|e| HorusError::Io(e))?;
+    let content = std::fs::read_to_string(file).map_err(HorusError::Io)?;
 
     let config: LaunchConfig = serde_yaml::from_str(&content)
         .map_err(|e| HorusError::Config(format!("Failed to parse launch file: {}", e)))?;

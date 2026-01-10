@@ -333,6 +333,7 @@ impl NetworkDiscovery {
         NetworkInterfaceType::Unknown
     }
 
+    #[allow(clippy::ptr_arg)]
     fn is_usb_device(&self, sysfs_path: &PathBuf) -> bool {
         let device_link = sysfs_path.join("device");
         if let Ok(target) = fs::read_link(&device_link) {
@@ -341,6 +342,7 @@ impl NetworkDiscovery {
         false
     }
 
+    #[allow(clippy::ptr_arg)]
     fn get_state(&self, sysfs_path: &PathBuf) -> NetworkState {
         let operstate = self.read_sysfs_string(&sysfs_path.join("operstate"));
         let carrier = self.read_sysfs_string(&sysfs_path.join("carrier"));
@@ -359,6 +361,7 @@ impl NetworkDiscovery {
         }
     }
 
+    #[allow(clippy::ptr_arg)]
     fn get_driver(&self, sysfs_path: &PathBuf) -> Option<String> {
         let driver_link = sysfs_path.join("device/driver");
         fs::read_link(&driver_link)
@@ -453,8 +456,8 @@ impl NetworkDiscovery {
             let stdout = String::from_utf8_lossy(&output.stdout);
             for line in stdout.lines() {
                 let line = line.trim();
-                if line.starts_with("SSID:") {
-                    info.ssid = Some(line[5..].trim().to_string());
+                if let Some(ssid) = line.strip_prefix("SSID:") {
+                    info.ssid = Some(ssid.trim().to_string());
                 } else if line.starts_with("signal:") {
                     if let Some(sig) = line.split_whitespace().nth(1) {
                         info.signal_dbm = sig.parse().ok();

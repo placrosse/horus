@@ -2701,12 +2701,10 @@ pub fn parse_horus_yaml_enable(path: &str) -> Result<EnableConfig> {
         Ok(yaml) => {
             let mut config = EnableConfig::default();
 
-            if let Some(enable_value) = yaml.get("enable") {
-                if let serde_yaml::Value::Sequence(list) = enable_value {
-                    for item in list {
-                        if let serde_yaml::Value::String(capability) = item {
-                            config.capabilities.push(capability.clone());
-                        }
+            if let Some(serde_yaml::Value::Sequence(list)) = yaml.get("enable") {
+                for item in list {
+                    if let serde_yaml::Value::String(capability) = item {
+                        config.capabilities.push(capability.clone());
                     }
                 }
             }

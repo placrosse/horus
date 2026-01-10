@@ -94,6 +94,7 @@ pub enum JoystickDriverBackend {
 }
 
 /// Type-erased joystick driver for runtime backend selection
+#[allow(clippy::large_enum_variant)]
 pub enum JoystickDriver {
     Simulation(SimulationJoystickDriver),
     #[cfg(feature = "gilrs")]

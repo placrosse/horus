@@ -72,7 +72,7 @@ impl SimulationModbusDriver {
         self.status = DriverStatus::Running;
 
         // Read holding registers and convert to bytes
-        let num_regs = (len + 1) / 2;
+        let num_regs = len.div_ceil(2);
         let mut result = Vec::with_capacity(len);
 
         for i in 0..num_regs as u16 {

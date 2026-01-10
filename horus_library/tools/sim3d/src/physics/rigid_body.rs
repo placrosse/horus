@@ -76,18 +76,13 @@ impl ContactForce {
     }
 }
 
-#[derive(Component, Debug, Clone, Copy, PartialEq)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Default)]
 pub enum RigidBodyType {
+    #[default]
     Dynamic,
     Fixed,
     KinematicPositionBased,
     KinematicVelocityBased,
-}
-
-impl Default for RigidBodyType {
-    fn default() -> Self {
-        Self::Dynamic
-    }
 }
 
 #[derive(Component, Default, Clone)]

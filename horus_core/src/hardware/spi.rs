@@ -99,8 +99,8 @@ impl SpiDiscovery {
         if let Ok(entries) = fs::read_dir("/sys/class/spi_master") {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with("spi") {
-                    if let Ok(bus_num) = name[3..].parse::<u8>() {
+                if let Some(suffix) = name.strip_prefix("spi") {
+                    if let Ok(bus_num) = suffix.parse::<u8>() {
                         // Ensure bus entry exists
                         found.entry(bus_num).or_default();
                     }

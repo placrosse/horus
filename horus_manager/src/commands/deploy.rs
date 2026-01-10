@@ -87,6 +87,7 @@ impl Default for DeployConfig {
 }
 
 /// Run the deploy command
+#[allow(clippy::too_many_arguments)]
 pub fn run_deploy(
     target: &str,
     remote_dir: Option<String>,
@@ -217,9 +218,10 @@ fn detect_target_arch(target: &str) -> TargetArch {
         || lower.contains("nano")
         || lower.contains("xavier")
         || lower.contains("orin")
+        || lower.contains("pi4")
+        || lower.contains("pi5")
+        || lower.contains("raspberry")
     {
-        TargetArch::Aarch64
-    } else if lower.contains("pi4") || lower.contains("pi5") || lower.contains("raspberry") {
         TargetArch::Aarch64
     } else if lower.contains("pi3") || lower.contains("pi2") {
         TargetArch::Armv7

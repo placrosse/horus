@@ -1919,6 +1919,12 @@ pub struct RecoveryState {
     pub consecutive_failures: u32,
 }
 
+impl Default for RecoveryState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RecoveryState {
     pub fn new() -> Self {
         Self {
@@ -4775,6 +4781,7 @@ impl Ros2Bridge {
 // ============================================================================
 
 /// Start the ROS2 bridge
+#[allow(clippy::too_many_arguments)]
 pub fn start_ros2_bridge(
     topics: Vec<String>,
     all: bool,

@@ -154,8 +154,8 @@ impl AudioDiscovery {
             if let Ok(entries) = fs::read_dir("/sys/class/sound") {
                 for entry in entries.flatten() {
                     let name = entry.file_name().to_string_lossy().to_string();
-                    if name.starts_with("card") {
-                        if let Ok(card_num) = name[4..].parse::<u8>() {
+                    if let Some(suffix) = name.strip_prefix("card") {
+                        if let Ok(card_num) = suffix.parse::<u8>() {
                             if let Some(card) = self.probe_card_sysfs(card_num) {
                                 self.cards.push(card);
                             }
@@ -282,6 +282,7 @@ impl AudioDiscovery {
         self.read_file_string(&PathBuf::from(path))
     }
 
+    #[allow(clippy::ptr_arg)]
     fn detect_device_type(&self, sysfs_path: &PathBuf, card_id: &str) -> AudioDeviceType {
         // Check device link for type hints
         let device_link = sysfs_path.join("device");
@@ -318,6 +319,7 @@ impl AudioDiscovery {
         }
     }
 
+    #[allow(clippy::ptr_arg)]
     fn get_driver(&self, sysfs_path: &PathBuf) -> Option<String> {
         let driver_link = sysfs_path.join("device/driver");
         fs::read_link(&driver_link)

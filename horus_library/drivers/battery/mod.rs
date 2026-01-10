@@ -23,20 +23,15 @@ use horus_core::driver::DriverStatus;
 use horus_core::error::HorusResult;
 
 /// Battery chemistry type
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum BatteryChemistry {
-    LiPo,     // Lithium Polymer
+    #[default]
+    LiPo, // Lithium Polymer
     LiFePO4,  // Lithium Iron Phosphate
     LiIon,    // Lithium Ion
     NiMH,     // Nickel Metal Hydride
     LeadAcid, // Lead Acid
     Custom,
-}
-
-impl Default for BatteryChemistry {
-    fn default() -> Self {
-        Self::LiPo
-    }
 }
 
 /// Common battery configuration shared across drivers

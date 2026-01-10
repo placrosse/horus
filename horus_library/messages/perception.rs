@@ -11,6 +11,7 @@ use serde_arrays;
 /// Point field description for flexible point cloud data
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum PointFieldType {
     /// 8-bit integer
     Int8 = 1,
@@ -25,15 +26,10 @@ pub enum PointFieldType {
     /// 32-bit unsigned integer
     UInt32 = 6,
     /// 32-bit float
+    #[default]
     Float32 = 7,
     /// 64-bit float
     Float64 = 8,
-}
-
-impl Default for PointFieldType {
-    fn default() -> Self {
-        Self::Float32
-    }
 }
 
 /// Point field descriptor

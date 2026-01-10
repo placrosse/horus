@@ -28,7 +28,7 @@ nalgebra = { workspace = true }
 # Visualization
 bevy = { version = "0.15" }
 bevy_egui = "0.31"
-rfd = "0.15"  # File picker dialog
+rfd = "0.17"  # File picker dialog
 
 # Utilities
 anyhow = { workspace = true }

@@ -52,7 +52,7 @@ pub fn run_scan(options: HardwareScanOptions) -> HorusResult<()> {
     };
 
     let mut discovery = HardwareDiscovery::with_options(discovery_opts)
-        .map_err(|e| horus_core::error::HorusError::Config(e))?;
+        .map_err(horus_core::error::HorusError::Config)?;
 
     // Set up progress bar
     let pb = ProgressBar::new(12);
@@ -188,9 +188,11 @@ pub fn run_scan(options: HardwareScanOptions) -> HorusResult<()> {
                 let category = driver_match.device_info.category.name();
 
                 println!(
-                    "  {} @ {} [{}]",
-                    format!("0x{:02X}", device.address).yellow(),
-                    format!("i2c-{}", device.bus_number),
+                    "  {} @ i2c-{} [{}]",
+                    format_args!("0x{:02X}", device.address)
+                        .to_string()
+                        .yellow(),
+                    device.bus_number,
                     name
                 );
 
@@ -497,12 +499,12 @@ pub fn run_platform(verbose: bool) -> HorusResult<()> {
     println!("  {} {:?}", "Variant:".dimmed(), platform);
 
     if platform.is_raspberry_pi() {
-        println!("  {} {}", "Family:".dimmed(), "Raspberry Pi");
+        println!("  {} Raspberry Pi", "Family:".dimmed());
     } else if platform.is_jetson() {
-        println!("  {} {}", "Family:".dimmed(), "NVIDIA Jetson");
+        println!("  {} NVIDIA Jetson", "Family:".dimmed());
         println!("  {} {}", "CUDA:".dimmed(), "Supported".green());
     } else if platform.is_beaglebone() {
-        println!("  {} {}", "Family:".dimmed(), "BeagleBone");
+        println!("  {} BeagleBone", "Family:".dimmed());
     }
     println!();
 
@@ -573,8 +575,7 @@ pub fn run_suggest(verbose: bool) -> HorusResult<()> {
     println!("{}", "HORUS Configuration Suggestion".green().bold());
     println!();
 
-    let mut discovery =
-        HardwareDiscovery::new().map_err(|e| horus_core::error::HorusError::Config(e))?;
+    let mut discovery = HardwareDiscovery::new().map_err(horus_core::error::HorusError::Config)?;
 
     let suggestion = discovery.suggest_configuration();
 
@@ -718,7 +719,7 @@ fn run_scan_json(options: HardwareScanOptions) -> HorusResult<()> {
     };
 
     let mut discovery = HardwareDiscovery::with_options(discovery_opts)
-        .map_err(|e| horus_core::error::HorusError::Config(e))?;
+        .map_err(horus_core::error::HorusError::Config)?;
 
     let report = discovery.scan_all();
 
@@ -735,8 +736,7 @@ pub fn run_export(output_path: Option<String>, _verbose: bool) -> HorusResult<()
     println!("{}", "HORUS Hardware Export".green().bold());
     println!();
 
-    let mut discovery =
-        HardwareDiscovery::new().map_err(|e| horus_core::error::HorusError::Config(e))?;
+    let mut discovery = HardwareDiscovery::new().map_err(horus_core::error::HorusError::Config)?;
 
     let suggestion = discovery.suggest_configuration();
 
@@ -751,7 +751,7 @@ pub fn run_export(output_path: Option<String>, _verbose: bool) -> HorusResult<()
 
     config.push_str("[platform]\n");
     config.push_str(&format!("name = \"{}\"\n", suggestion.platform.name()));
-    config.push_str("\n");
+    config.push('\n');
 
     if !suggestion.nodes.is_empty() {
         config.push_str("[nodes]\n\n");
@@ -764,7 +764,7 @@ pub fn run_export(output_path: Option<String>, _verbose: bool) -> HorusResult<()
             for (key, value) in &node.config {
                 config.push_str(&format!("{} = \"{}\"\n", key, value));
             }
-            config.push_str("\n");
+            config.push('\n');
         }
     }
 
@@ -777,7 +777,7 @@ pub fn run_export(output_path: Option<String>, _verbose: bool) -> HorusResult<()
 
     // Output
     if let Some(path) = output_path {
-        std::fs::write(&path, &config).map_err(|e| horus_core::error::HorusError::Io(e))?;
+        std::fs::write(&path, &config).map_err(horus_core::error::HorusError::Io)?;
         println!("  {} Configuration written to {}", "[+]".green(), path);
     } else {
         println!("{}", config);
@@ -791,8 +791,7 @@ pub fn run_device_info(device_path: &str, verbose: bool) -> HorusResult<()> {
     println!("{}", "HORUS Device Info".green().bold());
     println!();
 
-    let mut discovery =
-        HardwareDiscovery::new().map_err(|e| horus_core::error::HorusError::Config(e))?;
+    let mut discovery = HardwareDiscovery::new().map_err(horus_core::error::HorusError::Config)?;
 
     let report = discovery.scan_all();
 
@@ -800,7 +799,7 @@ pub fn run_device_info(device_path: &str, verbose: bool) -> HorusResult<()> {
     let device = report.all_devices.iter().find(|d| {
         d.path
             .as_ref()
-            .map_or(false, |p| p.to_string_lossy().contains(device_path))
+            .is_some_and(|p| p.to_string_lossy().contains(device_path))
     });
 
     match device {
@@ -986,14 +985,14 @@ fn get_device_snapshot(options: &HardwareScanOptions) -> HorusResult<HashSet<Dev
     };
 
     let mut discovery = HardwareDiscovery::with_options(discovery_opts)
-        .map_err(|e| horus_core::error::HorusError::Config(e))?;
+        .map_err(horus_core::error::HorusError::Config)?;
 
     let report = discovery.scan_all();
 
     Ok(report
         .all_devices
         .iter()
-        .map(|d| DeviceKey::from_device(d))
+        .map(DeviceKey::from_device)
         .collect())
 }
 

@@ -509,15 +509,14 @@ pub fn render_rendering_panel_ui(
                 {
                     settings.dirty = true;
                 }
-                if settings.vignette_enabled {
-                    if ui
+                if settings.vignette_enabled
+                    && ui
                         .add(
                             egui::Slider::new(&mut settings.vignette_intensity, 0.0..=1.0).text(""),
                         )
                         .changed()
-                    {
-                        settings.dirty = true;
-                    }
+                {
+                    settings.dirty = true;
                 }
             });
 
@@ -529,16 +528,15 @@ pub fn render_rendering_panel_ui(
                 {
                     settings.dirty = true;
                 }
-                if settings.film_grain_enabled {
-                    if ui
+                if settings.film_grain_enabled
+                    && ui
                         .add(
                             egui::Slider::new(&mut settings.film_grain_intensity, 0.0..=0.5)
                                 .text(""),
                         )
                         .changed()
-                    {
-                        settings.dirty = true;
-                    }
+                {
+                    settings.dirty = true;
                 }
             });
 
@@ -553,8 +551,8 @@ pub fn render_rendering_panel_ui(
                 {
                     settings.dirty = true;
                 }
-                if settings.chromatic_aberration_enabled {
-                    if ui
+                if settings.chromatic_aberration_enabled
+                    && ui
                         .add(
                             egui::Slider::new(
                                 &mut settings.chromatic_aberration_intensity,
@@ -563,9 +561,8 @@ pub fn render_rendering_panel_ui(
                             .text(""),
                         )
                         .changed()
-                    {
-                        settings.dirty = true;
-                    }
+                {
+                    settings.dirty = true;
                 }
             });
         });

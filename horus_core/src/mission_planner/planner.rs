@@ -338,7 +338,7 @@ impl MissionPlanner {
             .position(|id| {
                 self.missions
                     .get(id)
-                    .map_or(true, |m| m.priority() < priority)
+                    .is_none_or(|m| m.priority() < priority)
             })
             .unwrap_or(self.queue.len());
         self.queue.insert(insert_pos, mission_id.clone());
@@ -526,7 +526,7 @@ impl MissionPlanner {
             .filter(|id| {
                 self.missions
                     .get(*id)
-                    .map_or(false, |m| m.state.status == ExecutionStatus::Pending)
+                    .is_some_and(|m| m.state.status == ExecutionStatus::Pending)
             })
             .take(self.config.max_concurrent_missions - running_count)
             .cloned()

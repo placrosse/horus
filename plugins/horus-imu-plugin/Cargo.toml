@@ -1,0 +1,39 @@
+[package]
+name = "horus-imu-plugin"
+version = "0.1.0"
+edition = "2021"
+description = "IMU driver plugin for HORUS robotics framework"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/softmata/horus"
+keywords = ["robotics", "imu", "sensor", "driver", "plugin"]
+categories = ["science::robotics", "embedded", "hardware-support"]
+
+[lib]
+# Build as both a regular library and a cdylib for dynamic loading
+crate-type = ["lib", "cdylib"]
+
+[features]
+default = []
+# Feature to enable actual hardware backends (requires linux-embedded-hal, mpu6050 crates)
+mpu6050 = ["dep:mpu6050", "dep:linux-embedded-hal"]
+bno055 = ["dep:bno055", "dep:linux-embedded-hal"]
+icm20948 = ["dep:icm20948_driver", "dep:linux-embedded-hal"]
+# Enable all hardware backends
+all-backends = ["mpu6050", "bno055", "icm20948"]
+
+[dependencies]
+# Core HORUS dependencies
+horus_core = { path = "../../horus_core" }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Optional hardware dependencies
+mpu6050 = { version = "0.1", optional = true }
+bno055 = { version = "0.4", optional = true }
+icm20948_driver = { version = "0.2", optional = true }
+linux-embedded-hal = { version = "0.4", optional = true }
+
+[dev-dependencies]
+# Testing

@@ -53,6 +53,7 @@ pub mod actions; // Re-enabled after fixing compile errors
 pub mod backend;
 pub mod behavior_trees; // Re-enabled after fixing compile errors
 pub mod communication;
+pub mod config;
 pub mod core;
 pub mod driver;
 pub mod error;
@@ -61,6 +62,7 @@ pub mod memory;
 pub mod mission_planner;
 pub mod ml;
 pub mod params;
+pub mod plugin;
 pub mod scheduling;
 pub mod state_machines;
 pub mod terminal;
@@ -113,6 +115,13 @@ pub use mission_planner::{
 };
 // Mission planner ID types (aliased to avoid collision with actions::GoalId)
 pub use mission_planner::{GoalId as MissionGoalId, MissionId, TaskId};
+
+// Re-export plugin types for driver plugin system
+pub use plugin::{
+    AutoDetectable, BackendHealth, BackendId, BackendInfo, DriverPlugin, HotReloadable,
+    PluginEntryFn, PluginError, PluginFeature, PluginHealth, PluginId, PluginManifest,
+    PluginResult, ProbeResult, SystemDependency, PLUGIN_ENTRY_SYMBOL,
+};
 
 // Re-export the paste crate for macro usage
 pub use paste;

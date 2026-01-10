@@ -113,7 +113,7 @@ fn check_rust_toolchain(_verbose: bool) -> (CheckStatus, String) {
                         {
                             // HORUS requires Rust 1.70+
                             if major >= 1 && minor >= 70 {
-                                return (CheckStatus::Ok, format!("{}", ver));
+                                return (CheckStatus::Ok, ver.to_string());
                             } else {
                                 return (
                                     CheckStatus::Warning,
@@ -222,47 +222,38 @@ fn check_python(verbose: bool) -> (CheckStatus, String) {
 
 fn check_gpu(_verbose: bool) -> (CheckStatus, String) {
     // Check for NVIDIA GPU
-    match Command::new("nvidia-smi")
+    if let Ok(output) = Command::new("nvidia-smi")
         .arg("--query-gpu=name")
         .arg("--format=csv,noheader")
         .output()
     {
-        Ok(output) => {
-            if output.status.success() {
-                let gpu_name = String::from_utf8_lossy(&output.stdout);
-                let gpu_name = gpu_name.trim();
-                if !gpu_name.is_empty() {
-                    return (
-                        CheckStatus::Ok,
-                        gpu_name.lines().next().unwrap_or("NVIDIA GPU").to_string(),
-                    );
-                }
+        if output.status.success() {
+            let gpu_name = String::from_utf8_lossy(&output.stdout);
+            let gpu_name = gpu_name.trim();
+            if !gpu_name.is_empty() {
+                return (
+                    CheckStatus::Ok,
+                    gpu_name.lines().next().unwrap_or("NVIDIA GPU").to_string(),
+                );
             }
         }
-        Err(_) => {}
     }
 
     // Check for Vulkan support (cross-platform)
-    match Command::new("vulkaninfo").arg("--summary").output() {
-        Ok(output) => {
-            if output.status.success() {
-                let info = String::from_utf8_lossy(&output.stdout);
-                if info.contains("GPU") || info.contains("deviceName") {
-                    return (CheckStatus::Ok, "Vulkan available".to_string());
-                }
+    if let Ok(output) = Command::new("vulkaninfo").arg("--summary").output() {
+        if output.status.success() {
+            let info = String::from_utf8_lossy(&output.stdout);
+            if info.contains("GPU") || info.contains("deviceName") {
+                return (CheckStatus::Ok, "Vulkan available".to_string());
             }
         }
-        Err(_) => {}
     }
 
     // Check for OpenGL (basic)
-    match Command::new("glxinfo").args(["-B"]).output() {
-        Ok(output) => {
-            if output.status.success() {
-                return (CheckStatus::Ok, "OpenGL available".to_string());
-            }
+    if let Ok(output) = Command::new("glxinfo").args(["-B"]).output() {
+        if output.status.success() {
+            return (CheckStatus::Ok, "OpenGL available".to_string());
         }
-        Err(_) => {}
     }
 
     // On macOS, check for Metal

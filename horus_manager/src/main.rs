@@ -428,9 +428,9 @@ enum Commands {
     },
 
     /// Driver management (list, info, search)
-    Drivers {
+    Driver {
         #[command(subcommand)]
-        command: DriversCommands,
+        command: DriverCommands,
     },
 
     /// Deploy project to a remote robot
@@ -711,8 +711,8 @@ enum AuthKeysCommands {
 }
 
 #[derive(Subcommand)]
-enum DriversCommands {
-    /// List all available drivers (local + registry)
+enum DriverCommands {
+    /// List all available drivers (local + registry + plugins)
     List {
         /// Filter by category (sensor, actuator, bus, input, simulation)
         #[arg(short = 'c', long = "category")]
@@ -720,6 +720,12 @@ enum DriversCommands {
         /// Show only registry drivers (not local built-ins)
         #[arg(short = 'r', long = "registry")]
         registry_only: bool,
+        /// Show only loaded plugins
+        #[arg(short = 'p', long = "plugins")]
+        plugins_only: bool,
+        /// Driver loading mode when using --plugins (static, dynamic, hybrid)
+        #[arg(short = 'm', long = "mode", default_value = "hybrid")]
+        mode: String,
     },
 
     /// Show detailed information about a driver
@@ -735,6 +741,29 @@ enum DriversCommands {
         /// Filter by bus type (usb, i2c, spi, serial)
         #[arg(short = 'b', long = "bus")]
         bus_type: Option<String>,
+    },
+
+    /// Probe for available hardware using plugins
+    Probe {
+        /// Specific plugin to probe (e.g., horus-imu)
+        #[arg(short = 'p', long = "plugin")]
+        plugin: Option<String>,
+        /// Specific backend to probe (e.g., mpu6050)
+        #[arg(short = 'b', long = "backend")]
+        backend: Option<String>,
+        /// Driver loading mode (static, dynamic, hybrid)
+        #[arg(short = 'm', long = "mode", default_value = "hybrid")]
+        mode: String,
+    },
+
+    /// List and manage loaded driver plugins
+    Plugins {
+        /// Reload all plugins
+        #[arg(short = 'r', long = "reload")]
+        reload: bool,
+        /// Driver loading mode (static, dynamic, hybrid)
+        #[arg(short = 'm', long = "mode", default_value = "hybrid")]
+        mode: String,
     },
 }
 
@@ -1307,7 +1336,7 @@ fn parse_override(s: &str) -> Result<(String, String, String), String> {
 
 /// Parse a hex string (without 0x prefix) into bytes
 fn parse_hex_string(s: &str) -> Result<Vec<u8>, String> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return Err("Hex string must have even length".to_string());
     }
 
@@ -1351,7 +1380,7 @@ fn main() {
                 | "auth"
                 | "sim2d"
                 | "sim3d"
-                | "drivers"
+                | "driver"
                 | "deploy"
                 | "record"
                 | "completion"
@@ -4402,7 +4431,7 @@ except ImportError as e:
             }
         }
 
-        Commands::Drivers { command } => {
+        Commands::Driver { command } => {
             // Driver alias resolver (local implementation)
             fn resolve_driver_alias_local(alias: &str) -> Option<Vec<&'static str>> {
                 match alias {
@@ -4535,12 +4564,14 @@ except ImportError as e:
             ];
 
             match command {
-                DriversCommands::List {
+                DriverCommands::List {
                     category,
                     registry_only,
+                    plugins_only,
+                    mode,
                 } => {
-                    // Show local built-in drivers unless --registry flag
-                    if !registry_only {
+                    // Show local built-in drivers unless --registry or --plugins flag
+                    if !registry_only && !plugins_only {
                         let drivers: Vec<_> = if let Some(cat_str) = &category {
                             let cat_lower = cat_str.to_lowercase();
                             let cat_match = match cat_lower.as_str() {
@@ -4582,43 +4613,124 @@ except ImportError as e:
                         }
                     }
 
-                    // Also fetch from registry
-                    println!("{} Fetching drivers from registry...", "[NET]".cyan());
-                    let client = registry::RegistryClient::new();
-                    match client.list_drivers(category.as_deref()) {
-                        Ok(registry_drivers) => {
-                            if registry_drivers.is_empty() {
-                                println!("  No additional drivers in registry.");
-                            } else {
-                                println!(
-                                    "\n{} Registry Drivers ({} available):\n",
-                                    "[PKG]".cyan().bold(),
-                                    registry_drivers.len()
-                                );
-                                for d in registry_drivers {
-                                    let bus = d.bus_type.as_deref().unwrap_or("unknown");
-                                    let cat = d.category.as_deref().unwrap_or("driver");
-                                    println!(
-                                        "  {} {} ({}, {})",
-                                        "-".green(),
-                                        d.name.yellow(),
-                                        cat,
-                                        bus.dimmed()
-                                    );
-                                    if let Some(desc) = &d.description {
-                                        println!("     {}", desc.dimmed());
+                    // Show loaded plugins
+                    if !registry_only {
+                        use horus_core::plugin::{DriverLoader, DriverLoaderConfig, DriverMode};
+
+                        let driver_mode = match mode.to_lowercase().as_str() {
+                            "static" => DriverMode::Static,
+                            "dynamic" => DriverMode::Dynamic,
+                            _ => DriverMode::Hybrid,
+                        };
+
+                        let loader_config = DriverLoaderConfig {
+                            mode: driver_mode,
+                            auto_discover: true,
+                            ..Default::default()
+                        };
+                        let mut loader = DriverLoader::new(loader_config);
+
+                        // Try to load plugins from standard locations
+                        if let Err(e) = loader.initialize() {
+                            if !plugins_only {
+                                // Only warn if not plugins-only mode
+                                println!("{} Could not load plugins: {}", "[WARN]".yellow(), e);
+                            }
+                        }
+
+                        let loaded = loader.available_drivers();
+                        if !loaded.is_empty() {
+                            println!(
+                                "{} Loaded Plugins ({}):\n",
+                                "[PLUGIN]".magenta().bold(),
+                                loaded.len()
+                            );
+
+                            for plugin_id in loaded {
+                                if let Some(manifest) =
+                                    loader.get_plugin(&plugin_id).ok().map(|p| p.manifest())
+                                {
+                                    // Filter by category if specified
+                                    let category_match = if let Some(cat_str) = &category {
+                                        let cat_lower = cat_str.to_lowercase();
+                                        let manifest_cat =
+                                            format!("{:?}", manifest.category).to_lowercase();
+                                        manifest_cat.contains(&cat_lower)
+                                    } else {
+                                        true
+                                    };
+
+                                    if category_match {
+                                        println!(
+                                            "  {} {} v{} ({:?})",
+                                            "◆".magenta(),
+                                            manifest.name.yellow(),
+                                            manifest.version,
+                                            manifest.category
+                                        );
+                                        println!("     {}", manifest.description.dimmed());
+
+                                        // Show backends provided by this plugin
+                                        if !manifest.backends.is_empty() {
+                                            let backend_ids: Vec<_> = manifest
+                                                .backends
+                                                .iter()
+                                                .map(|b| b.id.as_str())
+                                                .collect();
+                                            println!(
+                                                "     Backends: {}",
+                                                backend_ids.join(", ").cyan()
+                                            );
+                                        }
                                     }
                                 }
                             }
+                            println!();
+                        } else if plugins_only {
+                            println!("{} No plugins loaded.", "[INFO]".cyan());
+                            println!("  Place plugins in ~/.horus/drivers/ or use static linking.");
                         }
-                        Err(e) => {
-                            println!("  {} Could not fetch registry: {}", "[WARN]".yellow(), e);
+                    }
+
+                    // Also fetch from registry (unless plugins_only)
+                    if !plugins_only {
+                        println!("{} Fetching drivers from registry...", "[NET]".cyan());
+                        let client = registry::RegistryClient::new();
+                        match client.list_drivers(category.as_deref()) {
+                            Ok(registry_drivers) => {
+                                if registry_drivers.is_empty() {
+                                    println!("  No additional drivers in registry.");
+                                } else {
+                                    println!(
+                                        "\n{} Registry Drivers ({} available):\n",
+                                        "[PKG]".cyan().bold(),
+                                        registry_drivers.len()
+                                    );
+                                    for d in registry_drivers {
+                                        let bus = d.bus_type.as_deref().unwrap_or("unknown");
+                                        let cat = d.category.as_deref().unwrap_or("driver");
+                                        println!(
+                                            "  {} {} ({}, {})",
+                                            "-".green(),
+                                            d.name.yellow(),
+                                            cat,
+                                            bus.dimmed()
+                                        );
+                                        if let Some(desc) = &d.description {
+                                            println!("     {}", desc.dimmed());
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                println!("  {} Could not fetch registry: {}", "[WARN]".yellow(), e);
+                            }
                         }
                     }
                     Ok(())
                 }
 
-                DriversCommands::Info { driver } => {
+                DriverCommands::Info { driver } => {
                     // Check if it's an alias first
                     if let Some(expanded) = resolve_driver_alias_local(&driver) {
                         println!(
@@ -4693,21 +4805,21 @@ except ImportError as e:
                             }
 
                             println!(
-                                "\n  {} To add: horus drivers add {}",
+                                "\n  {} To add: horus driver add {}",
                                 "[TIP]".green(),
                                 driver
                             );
                         }
                         Err(_) => {
                             println!("{} Driver '{}' not found.", "[WARN]".yellow(), driver);
-                            println!("\nUse 'horus drivers list' to see available drivers.");
-                            println!("Use 'horus drivers search <query>' to search.");
+                            println!("\nUse 'horus driver list' to see available drivers.");
+                            println!("Use 'horus driver search <query>' to search.");
                         }
                     }
                     Ok(())
                 }
 
-                DriversCommands::Search { query, bus_type } => {
+                DriverCommands::Search { query, bus_type } => {
                     // Search local first
                     let query_lower = query.to_lowercase();
                     let local_matches: Vec<_> = built_in_drivers
@@ -4760,6 +4872,214 @@ except ImportError as e:
                     }
                     Ok(())
                 }
+
+                DriverCommands::Probe {
+                    plugin,
+                    backend,
+                    mode,
+                } => {
+                    use horus_core::plugin::{DriverLoader, DriverLoaderConfig, DriverMode};
+
+                    let driver_mode = match mode.to_lowercase().as_str() {
+                        "static" => DriverMode::Static,
+                        "dynamic" => DriverMode::Dynamic,
+                        _ => DriverMode::Hybrid,
+                    };
+
+                    println!(
+                        "{} Probing for hardware (mode: {})...\n",
+                        "[PROBE]".cyan().bold(),
+                        mode
+                    );
+
+                    let loader_config = DriverLoaderConfig {
+                        mode: driver_mode,
+                        auto_discover: true,
+                        ..Default::default()
+                    };
+                    let mut loader = DriverLoader::new(loader_config);
+
+                    if let Err(e) = loader.initialize() {
+                        return Err(HorusError::Driver(format!(
+                            "Failed to initialize plugin loader: {}",
+                            e
+                        )));
+                    }
+
+                    let plugins_to_probe: Vec<String> = if let Some(p) = plugin {
+                        vec![p]
+                    } else {
+                        loader.available_drivers()
+                    };
+
+                    if plugins_to_probe.is_empty() {
+                        println!("{} No plugins loaded to probe.", "[WARN]".yellow());
+                        println!("  Place plugins in ~/.horus/drivers/ or use static linking.");
+                        return Ok(());
+                    }
+
+                    let backend_filter = backend.as_deref();
+
+                    for plugin_id in plugins_to_probe {
+                        let results = match loader.probe(&plugin_id) {
+                            Ok(r) => r,
+                            Err(e) => {
+                                println!(
+                                    "  {} Plugin {}: {}",
+                                    "[ERROR]".red(),
+                                    plugin_id.yellow(),
+                                    e
+                                );
+                                continue;
+                            }
+                        };
+
+                        // Filter by backend if specified
+                        let results: Vec<_> = if let Some(filter) = backend_filter {
+                            results
+                                .into_iter()
+                                .filter(|r| r.backend_id.contains(filter))
+                                .collect()
+                        } else {
+                            results
+                        };
+
+                        if results.is_empty() {
+                            continue;
+                        }
+
+                        println!("  {} Plugin: {}", "◆".magenta(), plugin_id.yellow());
+
+                        for result in results {
+                            let status = if result.detected {
+                                format!(
+                                    "✓ Detected (confidence: {:.0}%)",
+                                    result.confidence * 100.0
+                                )
+                                .green()
+                            } else {
+                                "✗ Not detected".red().to_string().into()
+                            };
+
+                            println!(
+                                "    {} {} - {}",
+                                "-".cyan(),
+                                result.backend_id.yellow(),
+                                status
+                            );
+
+                            if let Some(device_path) = &result.device_path {
+                                println!("      Device: {}", device_path.dimmed());
+                            }
+
+                            if let Some(msg) = &result.message {
+                                println!("      Info: {}", msg.dimmed());
+                            }
+                        }
+                        println!();
+                    }
+
+                    Ok(())
+                }
+
+                DriverCommands::Plugins { reload, mode } => {
+                    use horus_core::plugin::{DriverLoader, DriverLoaderConfig, DriverMode};
+
+                    let driver_mode = match mode.to_lowercase().as_str() {
+                        "static" => DriverMode::Static,
+                        "dynamic" => DriverMode::Dynamic,
+                        _ => DriverMode::Hybrid,
+                    };
+
+                    if reload {
+                        println!(
+                            "{} Reloading plugins (mode: {})...",
+                            "[PLUGIN]".magenta().bold(),
+                            mode
+                        );
+                    } else {
+                        println!(
+                            "{} Loaded Plugins (mode: {}):\n",
+                            "[PLUGIN]".magenta().bold(),
+                            mode
+                        );
+                    }
+
+                    let loader_config = DriverLoaderConfig {
+                        mode: driver_mode,
+                        auto_discover: true,
+                        ..Default::default()
+                    };
+                    let mut loader = DriverLoader::new(loader_config);
+
+                    if let Err(e) = loader.initialize() {
+                        return Err(HorusError::Driver(format!(
+                            "Failed to initialize plugin loader: {}",
+                            e
+                        )));
+                    }
+
+                    let loaded = loader.available_drivers();
+
+                    if loaded.is_empty() {
+                        println!("{} No plugins loaded.", "[INFO]".cyan());
+                        println!("\n  Plugin search paths:");
+                        println!("    - ~/.horus/drivers/");
+                        println!("    - ./drivers/");
+                        println!("\n  To create a plugin:");
+                        println!("    1. Build plugin as cdylib: crate-type = [\"cdylib\"]");
+                        println!("    2. Export entry point: horus_driver_entry()");
+                        println!("    3. Place .so file in search path");
+                        return Ok(());
+                    }
+
+                    // Get plugin health status once
+                    let health_map = loader.health();
+
+                    for plugin_id in loaded {
+                        if let Some(manifest) =
+                            loader.get_plugin(&plugin_id).ok().map(|p| p.manifest())
+                        {
+                            println!(
+                                "  {} {} v{} ({:?})",
+                                "◆".magenta(),
+                                manifest.name.yellow(),
+                                manifest.version,
+                                manifest.category
+                            );
+                            println!("     ID:          {}", manifest.id);
+                            println!("     Description: {}", manifest.description.dimmed());
+
+                            if let Some(author) = &manifest.author {
+                                println!("     Author:      {}", author);
+                            }
+
+                            if !manifest.backends.is_empty() {
+                                println!("     Backends:");
+                                for backend in &manifest.backends {
+                                    println!(
+                                        "       - {} ({})",
+                                        backend.id.cyan(),
+                                        backend.description.dimmed()
+                                    );
+                                }
+                            }
+
+                            // Check plugin health
+                            if let Some(health) = health_map.get(&plugin_id) {
+                                let status = if health.healthy {
+                                    "Healthy".green()
+                                } else {
+                                    "Unhealthy".red()
+                                };
+                                println!("     Status:      {}", status);
+                            }
+                            println!();
+                        }
+                    }
+
+                    Ok(())
+                }
             }
         }
 
@@ -4781,9 +5101,9 @@ except ImportError as e:
             let horus_yaml_path = workspace_path.join("horus.yaml");
 
             if !horus_yaml_path.exists() {
-                return Err(HorusError::Config(format!(
-                    "No horus.yaml found. Run 'horus init' or 'horus new' first."
-                )));
+                return Err(HorusError::Config(
+                    "No horus.yaml found. Run 'horus init' or 'horus new' first.".to_string(),
+                ));
             }
 
             // Determine package type - either from flags or auto-detect from registry
@@ -4852,9 +5172,9 @@ except ImportError as e:
             let horus_yaml_path = workspace_path.join("horus.yaml");
 
             if !horus_yaml_path.exists() {
-                return Err(HorusError::Config(format!(
-                    "No horus.yaml found in current directory or workspace."
-                )));
+                return Err(HorusError::Config(
+                    "No horus.yaml found in current directory or workspace.".to_string(),
+                ));
             }
 
             // Remove from horus.yaml
@@ -5287,9 +5607,9 @@ except ImportError as e:
                     for (node, output, value_str) in &overrides {
                         // Parse the value string into bytes
                         // Support formats: hex (0x...), decimal numbers, or raw strings
-                        let value_bytes = if value_str.starts_with("0x") {
+                        let value_bytes = if let Some(hex_str) = value_str.strip_prefix("0x") {
                             // Hex format - parse manually without hex crate
-                            parse_hex_string(&value_str[2..])
+                            parse_hex_string(hex_str)
                                 .unwrap_or_else(|_| value_str.as_bytes().to_vec())
                         } else if let Ok(num) = value_str.parse::<f64>() {
                             // Float number

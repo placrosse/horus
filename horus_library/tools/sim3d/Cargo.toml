@@ -85,7 +85,7 @@ bevy = { version = "0.15", default-features = false, features = [
 bevy_egui = { version = "0.31", optional = true }
 bevy_editor_pls = { version = "0.9", optional = true }
 egui_dock = { version = "0.14", optional = true }
-rfd = { version = "0.15", optional = true }  # Native file dialogs
+rfd = { version = "0.17", optional = true }  # Native file dialogs
 
 # URDF Support
 urdf-rs = "0.8"

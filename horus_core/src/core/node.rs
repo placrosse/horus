@@ -1,5 +1,6 @@
 use crate::memory::platform::shm_heartbeats_dir;
 use crate::params::RuntimeParams;
+use crate::terminal::is_raw_mode;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
@@ -730,13 +731,16 @@ impl NodeInfo {
         if self.config.enable_logging {
             // Color-coded logging for readability
             // Cyan timestamp | Green metrics | Blue tick# | Yellow node | Bold Green PUB arrow | Magenta topic | White data
-            print!("\r\n\x1b[36m[{}]\x1b[0m \x1b[32m[IPC: {}ns | Tick: {}μs]\x1b[0m \x1b[34m[#{}]\x1b[0m \x1b[33m{}\x1b[0m \x1b[1;32m--PUB-->\x1b[0m \x1b[35m'{}'\x1b[0m = {}\r\n",
+            let line_ending = if is_raw_mode() { "\r\n" } else { "\n" };
+            let msg = format!("{}\x1b[36m[{}]\x1b[0m \x1b[32m[IPC: {}ns | Tick: {}μs]\x1b[0m \x1b[34m[#{}]\x1b[0m \x1b[33m{}\x1b[0m \x1b[1;32m--PUB-->\x1b[0m \x1b[35m'{}'\x1b[0m = {}{}",
+                   line_ending,
                    now.format("%H:%M:%S%.3f"),
                    ipc_ns,
                    current_tick_us,
                    self.metrics.total_ticks,
-                   self.name, topic, summary);
+                   self.name, topic, summary, line_ending);
             use std::io::{self, Write};
+            let _ = io::stdout().write_all(msg.as_bytes());
             let _ = io::stdout().flush();
         }
 
@@ -773,13 +777,15 @@ impl NodeInfo {
         if self.config.enable_logging {
             // Color-coded logging for readability
             // Cyan timestamp | Green metrics | Blue tick# | Yellow node | Bold Blue SUB arrow | Magenta topic | White data
-            println!("\x1b[36m[{}]\x1b[0m \x1b[32m[IPC: {}ns | Tick: {}μs]\x1b[0m \x1b[34m[#{}]\x1b[0m \x1b[33m{}\x1b[0m \x1b[1;34m<--SUB--\x1b[0m \x1b[35m'{}'\x1b[0m = {}",
+            let line_ending = if is_raw_mode() { "\r\n" } else { "\n" };
+            let msg = format!("\x1b[36m[{}]\x1b[0m \x1b[32m[IPC: {}ns | Tick: {}μs]\x1b[0m \x1b[34m[#{}]\x1b[0m \x1b[33m{}\x1b[0m \x1b[1;34m<--SUB--\x1b[0m \x1b[35m'{}'\x1b[0m = {}{}",
                    now.format("%H:%M:%S%.3f"),
                    ipc_ns,
                    current_tick_us,
                    display_tick,
-                   self.name, topic, summary);
+                   self.name, topic, summary, line_ending);
             use std::io::{self, Write};
+            let _ = io::stdout().write_all(msg.as_bytes());
             let _ = io::stdout().flush();
         }
 
@@ -811,10 +817,14 @@ impl NodeInfo {
         if self.config.enable_logging
             && (self.config.log_level == "INFO" || self.config.log_level == "DEBUG")
         {
-            eprintln!(
-                "\x1b[34m[INFO]\x1b[0m \x1b[33m[{}]\x1b[0m {}",
-                self.name, message
+            let line_ending = if is_raw_mode() { "\r\n" } else { "\n" };
+            let msg = format!(
+                "\x1b[34m[INFO]\x1b[0m \x1b[33m[{}]\x1b[0m {}{}",
+                self.name, message, line_ending
             );
+            use std::io::{self, Write};
+            let _ = io::stderr().write_all(msg.as_bytes());
+            let _ = io::stderr().flush();
         }
 
         // Write to global log buffer for monitor
@@ -841,9 +851,10 @@ impl NodeInfo {
 
         if self.config.enable_logging {
             // Format to owned String first to avoid double-formatting issues
+            let line_ending = if is_raw_mode() { "\r\n" } else { "\n" };
             let msg = format!(
-                "\x1b[33m[WARN]\x1b[0m \x1b[33m[{}]\x1b[0m {}\n",
-                self.name, message
+                "\x1b[33m[WARN]\x1b[0m \x1b[33m[{}]\x1b[0m {}{}",
+                self.name, message, line_ending
             );
             use std::io::{self, Write};
             let _ = io::stdout().write_all(msg.as_bytes());
@@ -881,9 +892,10 @@ impl NodeInfo {
 
         if self.config.enable_logging {
             // Format to owned String first to avoid double-formatting issues
+            let line_ending = if is_raw_mode() { "\r\n" } else { "\n" };
             let msg = format!(
-                "\x1b[31m[ERROR]\x1b[0m \x1b[33m[{}]\x1b[0m {}\n",
-                self.name, message
+                "\x1b[31m[ERROR]\x1b[0m \x1b[33m[{}]\x1b[0m {}{}",
+                self.name, message, line_ending
             );
             use std::io::{self, Write};
             let _ = io::stdout().write_all(msg.as_bytes());
@@ -921,9 +933,10 @@ impl NodeInfo {
 
         if self.config.enable_logging && self.config.log_level == "DEBUG" {
             // Format to owned String first to avoid double-formatting issues
+            let line_ending = if is_raw_mode() { "\r\n" } else { "\n" };
             let msg = format!(
-                "\x1b[90m[DEBUG]\x1b[0m \x1b[33m[{}]\x1b[0m {}\n",
-                self.name, message
+                "\x1b[90m[DEBUG]\x1b[0m \x1b[33m[{}]\x1b[0m {}{}",
+                self.name, message, line_ending
             );
             use std::io::{self, Write};
             let _ = io::stdout().write_all(msg.as_bytes());
@@ -952,15 +965,20 @@ impl NodeInfo {
 
             // Only log if there are concerning metrics
             if self.metrics.failed_ticks > 0 || self.metrics.avg_tick_duration_ms > 100.0 {
-                println!(
-                    "[{}] METRICS {} - uptime:{}s, ticks:{}/{}, avg:{}ms",
+                let line_ending = if is_raw_mode() { "\r\n" } else { "\n" };
+                let msg = format!(
+                    "[{}] METRICS {} - uptime:{}s, ticks:{}/{}, avg:{}ms{}",
                     now.format("%H:%M:%S"),
                     self.name,
                     uptime,
                     self.metrics.successful_ticks,
                     self.metrics.total_ticks,
-                    self.metrics.avg_tick_duration_ms as u64
+                    self.metrics.avg_tick_duration_ms as u64,
+                    line_ending
                 );
+                use std::io::{self, Write};
+                let _ = io::stdout().write_all(msg.as_bytes());
+                let _ = io::stdout().flush();
             }
         }
     }

@@ -66,8 +66,8 @@ impl I2cDiscovery {
         if let Ok(entries) = fs::read_dir("/dev") {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with("i2c-") {
-                    if let Ok(bus_num) = name[4..].parse::<u8>() {
+                if let Some(suffix) = name.strip_prefix("i2c-") {
+                    if let Ok(bus_num) = suffix.parse::<u8>() {
                         let device_path = entry.path();
 
                         // Try to get adapter name from sysfs
@@ -89,8 +89,8 @@ impl I2cDiscovery {
         if let Ok(entries) = fs::read_dir("/sys/class/i2c-adapter") {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with("i2c-") {
-                    if let Ok(bus_num) = name[4..].parse::<u8>() {
+                if let Some(suffix) = name.strip_prefix("i2c-") {
+                    if let Ok(bus_num) = suffix.parse::<u8>() {
                         // Skip if already found
                         if self.buses.iter().any(|b| b.bus_number == bus_num) {
                             continue;

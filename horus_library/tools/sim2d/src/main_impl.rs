@@ -278,15 +278,11 @@ pub fn default_obstacle_color() -> [f32; 3] {
 /// Obstacle shape type
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ObstacleShape {
+    #[default]
     Rectangle,
     Circle,
-}
-
-impl Default for ObstacleShape {
-    fn default() -> Self {
-        Self::Rectangle
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2443,7 +2439,7 @@ pub fn trajectory_system(
     if visual_prefs.show_trajectory {
         for transform in robot_query.iter() {
             // Sample every 0.1 seconds
-            if time.elapsed_secs() as usize % 10 == 0 {
+            if (time.elapsed_secs() as usize).is_multiple_of(10) {
                 let pos = (transform.translation.x, transform.translation.y);
                 trajectory.points.push(pos);
 

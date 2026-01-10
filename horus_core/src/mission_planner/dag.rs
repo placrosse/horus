@@ -88,7 +88,7 @@ impl<Id: std::hash::Hash + Eq + Clone + std::fmt::Display> DependencyGraph<Id> {
     pub fn has_unmet_dependencies(&self, id: &Id, completed: &HashSet<Id>) -> bool {
         self.dependencies
             .get(id)
-            .map_or(false, |deps| !deps.is_subset(completed))
+            .is_some_and(|deps| !deps.is_subset(completed))
     }
 
     /// Get nodes that are ready to execute (no unmet dependencies).
@@ -108,7 +108,7 @@ impl<Id: std::hash::Hash + Eq + Clone + std::fmt::Display> DependencyGraph<Id> {
             .filter(|id| {
                 self.dependencies
                     .get(*id)
-                    .map_or(true, |deps| deps.is_empty())
+                    .is_none_or(|deps| deps.is_empty())
             })
             .cloned()
             .collect()
@@ -118,11 +118,7 @@ impl<Id: std::hash::Hash + Eq + Clone + std::fmt::Display> DependencyGraph<Id> {
     pub fn get_exit_nodes(&self) -> Vec<Id> {
         self.nodes
             .iter()
-            .filter(|id| {
-                self.dependents
-                    .get(*id)
-                    .map_or(true, |deps| deps.is_empty())
-            })
+            .filter(|id| self.dependents.get(*id).is_none_or(|deps| deps.is_empty()))
             .cloned()
             .collect()
     }
@@ -453,7 +449,7 @@ impl<Id: std::hash::Hash + Eq + Clone + std::fmt::Display> ExecutionScheduler<Id
                 // Check if any dependency failed
                 self.dag
                     .get_dependencies(id)
-                    .map_or(false, |deps| deps.iter().any(|d| self.failed.contains(d)))
+                    .is_some_and(|deps| deps.iter().any(|d| self.failed.contains(d)))
             })
             .cloned()
             .collect()

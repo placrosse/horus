@@ -15,9 +15,10 @@ pub struct ResolvedDependency {
     pub version: Version,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum DependencySource {
-    Registry,                 // HORUS registry (default)
+    #[default]
+    Registry, // HORUS registry (default)
     Path(std::path::PathBuf), // Local filesystem path
     Git {
         // Git repository
@@ -26,12 +27,6 @@ pub enum DependencySource {
         tag: Option<String>,
         rev: Option<String>,
     },
-}
-
-impl Default for DependencySource {
-    fn default() -> Self {
-        Self::Registry
-    }
 }
 
 #[derive(Debug, Clone)]

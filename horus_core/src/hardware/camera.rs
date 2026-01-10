@@ -148,7 +148,7 @@ impl CameraDiscovery {
     /// Find camera by name
     pub fn find_by_name(&self, name: &str) -> Option<&Camera> {
         self.cameras.iter().find(|c| {
-            c.name.contains(name) || c.card.as_ref().map_or(false, |card| card.contains(name))
+            c.name.contains(name) || c.card.as_ref().is_some_and(|card| card.contains(name))
         })
     }
 

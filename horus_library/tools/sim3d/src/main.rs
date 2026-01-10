@@ -261,7 +261,7 @@ fn screenshot_camera_setup_system(
                 "left" => Vec3::new(-base_dist, height, 0.0), // Left view (X-)
                 "right" => Vec3::new(base_dist, height, 0.0), // Right view (X+)
                 "top" => Vec3::new(0.0, base_dist * 1.5, 0.1), // Top-down view
-                "isometric" | _ => Vec3::new(
+                _ => Vec3::new(
                     // 3/4 isometric view
                     base_dist * 0.7,
                     height,

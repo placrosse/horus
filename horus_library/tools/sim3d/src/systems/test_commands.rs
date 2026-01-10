@@ -347,9 +347,7 @@ fn process_test_commands(
                         "left" => Vec3::new(-*distance, *distance * 0.5, 0.0),
                         "right" => Vec3::new(*distance, *distance * 0.5, 0.0),
                         "top" => Vec3::new(0.0, *distance * 1.5, 0.1),
-                        "isometric" | _ => {
-                            Vec3::new(*distance * 0.7, *distance * 0.5, *distance * 0.7)
-                        }
+                        _ => Vec3::new(*distance * 0.7, *distance * 0.5, *distance * 0.7),
                     };
                     camera.translation = offset;
                     camera.look_at(Vec3::ZERO, Vec3::Y);

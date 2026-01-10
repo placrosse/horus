@@ -211,7 +211,7 @@ impl<C: Send + Sync> BTNode<C> for ActionNode<C> {
     }
 
     fn check_guard(&self, ctx: &TickContext<'_, C>) -> bool {
-        self.guard.as_ref().map_or(true, |g| g(ctx))
+        self.guard.as_ref().is_none_or(|g| g(ctx))
     }
 }
 

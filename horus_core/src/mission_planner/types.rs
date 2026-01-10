@@ -136,9 +136,10 @@ impl From<&str> for TaskId {
 // ============================================================================
 
 /// Status of a mission, goal, or task.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum ExecutionStatus {
     /// Not yet started.
+    #[default]
     Pending,
     /// Waiting for dependencies to complete.
     Blocked,
@@ -178,18 +179,15 @@ impl ExecutionStatus {
     }
 }
 
-impl Default for ExecutionStatus {
-    fn default() -> Self {
-        Self::Pending
-    }
-}
-
 /// Priority level for missions, goals, and tasks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
 pub enum Priority {
     /// Lowest priority, executed when nothing else is pending.
     Low = 0,
     /// Normal priority for regular operations.
+    #[default]
     Normal = 1,
     /// Higher priority for important tasks.
     High = 2,
@@ -197,12 +195,6 @@ pub enum Priority {
     Critical = 3,
     /// Emergency priority, preempts everything else.
     Emergency = 4,
-}
-
-impl Default for Priority {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 impl From<u8> for Priority {
@@ -266,9 +258,10 @@ pub enum TaskExecutor {
 }
 
 /// Condition that must be met for a task to execute.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum TaskCondition {
     /// Always execute.
+    #[default]
     Always,
     /// Never execute (disabled).
     Never,
@@ -289,12 +282,6 @@ pub enum TaskCondition {
     Not(Box<TaskCondition>),
     /// Custom condition with a named predicate.
     Custom { name: String, args: Vec<String> },
-}
-
-impl Default for TaskCondition {
-    fn default() -> Self {
-        Self::Always
-    }
 }
 
 /// Retry policy for failed tasks.
@@ -428,22 +415,17 @@ impl TaskSpec {
 // ============================================================================
 
 /// What should happen when a goal fails.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum GoalFailurePolicy {
     /// Continue with other goals in the mission.
     Continue,
     /// Pause the mission and wait for intervention.
+    #[default]
     Pause,
     /// Abort the entire mission.
     AbortMission,
     /// Retry the goal from the beginning.
     Retry,
-}
-
-impl Default for GoalFailurePolicy {
-    fn default() -> Self {
-        Self::Pause
-    }
 }
 
 /// Specification for a goal (a collection of related tasks).
@@ -561,7 +543,7 @@ impl GoalSpec {
             .filter(|t| {
                 self.dependencies
                     .get(&t.id)
-                    .map_or(true, |deps| deps.is_empty())
+                    .is_none_or(|deps| deps.is_empty())
             })
             .collect()
     }
@@ -572,20 +554,15 @@ impl GoalSpec {
 // ============================================================================
 
 /// Mode of mission execution.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum MissionMode {
     /// Execute goals sequentially in order.
+    #[default]
     Sequential,
     /// Execute goals in parallel where possible.
     Parallel,
     /// Execute goals opportunistically based on conditions.
     Opportunistic,
-}
-
-impl Default for MissionMode {
-    fn default() -> Self {
-        Self::Sequential
-    }
 }
 
 /// Specification for a complete mission.
@@ -705,7 +682,7 @@ impl MissionSpec {
             .filter(|g| {
                 self.dependencies
                     .get(&g.id)
-                    .map_or(true, |deps| deps.is_empty())
+                    .is_none_or(|deps| deps.is_empty())
             })
             .collect()
     }

@@ -10,19 +10,15 @@ use serde::{Deserialize, Serialize};
 /// Robot kinematics type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum KinematicsType {
     /// Differential drive (default) - two independently driven wheels
+    #[default]
     Differential,
     /// Ackermann steering - car-like steering
     Ackermann,
     /// Omnidirectional - holonomic drive (can move in any direction)
     Omnidirectional,
-}
-
-impl Default for KinematicsType {
-    fn default() -> Self {
-        Self::Differential
-    }
 }
 
 /// Configuration for Ackermann steering

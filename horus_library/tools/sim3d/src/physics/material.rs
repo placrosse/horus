@@ -53,9 +53,10 @@ pub struct AdvancedMaterial {
 }
 
 /// Friction model types
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub enum FrictionModel {
     /// Simple Coulomb friction (velocity-independent)
+    #[default]
     Coulomb,
 
     /// Stribeck friction model (velocity-dependent)
@@ -81,12 +82,6 @@ pub enum FrictionModel {
         static_threshold: f32,
         dynamic_threshold: f32,
     },
-}
-
-impl Default for FrictionModel {
-    fn default() -> Self {
-        Self::Coulomb
-    }
 }
 
 /// Anisotropic friction (direction-dependent friction)

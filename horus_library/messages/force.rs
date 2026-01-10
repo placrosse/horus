@@ -397,8 +397,10 @@ impl ForceCommand {
 /// Contact state detection
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum ContactState {
     /// No contact detected
+    #[default]
     NoContact = 0,
     /// Initial contact detected
     InitialContact = 1,
@@ -410,12 +412,6 @@ pub enum ContactState {
     Sliding = 4,
     /// Impact detected
     Impact = 5,
-}
-
-impl Default for ContactState {
-    fn default() -> Self {
-        Self::NoContact
-    }
 }
 
 /// Contact detection and classification

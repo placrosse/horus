@@ -465,7 +465,7 @@ where
 
             // Periodic detailed logging
             self.log_counter += 1;
-            if self.log_counter % 100 == 0 {
+            if self.log_counter.is_multiple_of(100) {
                 // Log every 100 publishes (2 sec at 50Hz)
                 ctx.log_debug(&format!(
                     "Odom: pos=({:.3}, {:.3})m theta={:.2}° vel=({:.2}, {:.2})m/s omega={:.2}rad/s",

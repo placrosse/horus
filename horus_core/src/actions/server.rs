@@ -196,6 +196,7 @@ impl<A: Action> Debug for ServerGoalHandle<A> {
 }
 
 /// Internal feedback sender that handles rate limiting.
+#[allow(clippy::type_complexity)]
 struct FeedbackSender<A: Action> {
     link: Arc<RwLock<Option<Link<ActionFeedback<A::Feedback>>>>>,
     last_send: Arc<RwLock<Instant>>,
@@ -206,6 +207,7 @@ impl<A: Action> FeedbackSender<A>
 where
     A::Feedback: Clone + Send + Sync + Serialize + DeserializeOwned + Debug + LogSummary + 'static,
 {
+    #[allow(clippy::type_complexity)]
     fn new(link: Arc<RwLock<Option<Link<ActionFeedback<A::Feedback>>>>>, rate_hz: f64) -> Self {
         let min_interval = if rate_hz > 0.0 {
             Duration::from_secs_f64(1.0 / rate_hz)
@@ -385,6 +387,7 @@ where
 /// - Managing goal lifecycle
 /// - Publishing feedback and results
 /// - Enforcing preemption policies
+#[allow(clippy::type_complexity)]
 pub struct ActionServerNode<A: Action> {
     name: String,
 

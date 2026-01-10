@@ -29,9 +29,10 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 /// Driver status for lifecycle tracking
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum DriverStatus {
     /// Driver has not been initialized yet
+    #[default]
     Uninitialized,
     /// Driver is ready to operate
     Ready,
@@ -41,12 +42,6 @@ pub enum DriverStatus {
     Error(String),
     /// Driver has been shut down
     Shutdown,
-}
-
-impl Default for DriverStatus {
-    fn default() -> Self {
-        Self::Uninitialized
-    }
 }
 
 impl std::fmt::Display for DriverStatus {
@@ -62,7 +57,8 @@ impl std::fmt::Display for DriverStatus {
 }
 
 /// Driver category for classification (informational only)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum DriverCategory {
     /// Sensors (LiDAR, cameras, IMU, GPS, etc.)
     Sensor,

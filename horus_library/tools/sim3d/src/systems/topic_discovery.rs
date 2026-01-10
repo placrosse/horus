@@ -184,6 +184,7 @@ impl Plugin for TopicDiscoveryPlugin {
 
 /// Holds the latest received value for each message type
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum LatestMessage {
     Twist(Twist),
     Odometry(Odometry),

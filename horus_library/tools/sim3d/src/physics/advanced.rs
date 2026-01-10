@@ -553,20 +553,15 @@ impl FrictionMaterialPairs {
 // ============================================================================
 
 /// Contact model types
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ContactModel {
     /// Point contact (default, single contact point)
+    #[default]
     Point,
     /// Patch contact (area contact, multiple points)
     Patch,
     /// Soft contact (compliant contact with penetration)
     Soft,
-}
-
-impl Default for ContactModel {
-    fn default() -> Self {
-        Self::Point
-    }
 }
 
 /// Configuration for contact behavior

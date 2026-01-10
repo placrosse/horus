@@ -42,8 +42,10 @@ pub struct TimeSync {
 /// Time synchronization quality levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum SyncQuality {
     /// No synchronization available
+    #[default]
     None = 0,
     /// Poor synchronization (>1ms accuracy)
     Poor = 1,
@@ -55,12 +57,6 @@ pub enum SyncQuality {
     Excellent = 4,
     /// Precision synchronization (<1us accuracy)
     Precision = 5,
-}
-
-impl Default for SyncQuality {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 impl TimeSync {
@@ -193,12 +189,14 @@ pub struct ScheduledEvent {
 /// Event type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum EventType {
     /// Start a task or operation
     TaskStart = 0,
     /// Stop a task or operation
     TaskStop = 1,
     /// Send a command
+    #[default]
     Command = 2,
     /// Collect sensor data
     DataCollection = 3,
@@ -220,17 +218,13 @@ pub enum EventType {
     Custom = 255,
 }
 
-impl Default for EventType {
-    fn default() -> Self {
-        Self::Command
-    }
-}
-
 /// Event execution status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum EventStatus {
     /// Event scheduled but not executed
+    #[default]
     Scheduled = 0,
     /// Event is being executed
     Executing = 1,
@@ -244,12 +238,6 @@ pub enum EventStatus {
     Missed = 5,
     /// Event postponed to later time
     Postponed = 6,
-}
-
-impl Default for EventStatus {
-    fn default() -> Self {
-        Self::Scheduled
-    }
 }
 
 impl ScheduledEvent {
@@ -368,8 +356,10 @@ pub struct Timeline {
 /// Timeline execution status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum TimelineStatus {
     /// Timeline created but not started
+    #[default]
     Created = 0,
     /// Timeline is running
     Running = 1,
@@ -381,12 +371,6 @@ pub enum TimelineStatus {
     Aborted = 4,
     /// Timeline stopped by user
     Stopped = 5,
-}
-
-impl Default for TimelineStatus {
-    fn default() -> Self {
-        Self::Created
-    }
 }
 
 impl Default for Timeline {

@@ -45,6 +45,12 @@ pub struct HFrameReader {
     pending_transforms: HashMap<String, (String, Transform, u64, bool)>,
 }
 
+impl Default for HFrameReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HFrameReader {
     pub fn new() -> Self {
         Self {
@@ -61,17 +67,14 @@ impl HFrameReader {
 
         // Try to read from dynamic tf topic
         // Use receive() for streaming (new messages only)
-        match ShmTopic::<TFMessage>::open(TF_TOPIC) {
-            Ok(topic) => {
-                if let Some(sample) = topic.receive() {
-                    let msg = sample.get_ref();
-                    for tf in msg.iter() {
-                        self.add_transform(tf, false);
-                        found_any = true;
-                    }
+        if let Ok(topic) = ShmTopic::<TFMessage>::open(TF_TOPIC) {
+            if let Some(sample) = topic.receive() {
+                let msg = sample.get_ref();
+                for tf in msg.iter() {
+                    self.add_transform(tf, false);
+                    found_any = true;
                 }
             }
-            Err(_) => {}
         }
 
         // Try to read from static tf topic
@@ -179,7 +182,7 @@ impl HFrameReader {
 
             // If we didn't process anything, we might have a cycle or missing parent
             // Try to register any remaining frames' parents as roots
-            for (_child, (parent, _transform, _, _is_static)) in &remaining {
+            for (parent, _transform, _, _is_static) in remaining.values() {
                 if !self.hframe.has_frame(parent) {
                     let _ = self
                         .hframe
@@ -838,11 +841,8 @@ pub fn can_transform(source_frame: &str, target_frame: &str) -> HorusResult<()> 
 
     if can {
         // Show the chain
-        match reader.hframe.frame_chain(source_frame, target_frame) {
-            Ok(chain) => {
-                println!("  {} {}", "Chain:".cyan(), chain.join(" → "));
-            }
-            Err(_) => {}
+        if let Ok(chain) = reader.hframe.frame_chain(source_frame, target_frame) {
+            println!("  {} {}", "Chain:".cyan(), chain.join(" → "));
         }
 
         // Show the transform

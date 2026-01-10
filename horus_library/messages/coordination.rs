@@ -41,8 +41,10 @@ pub struct RobotState {
 /// Robot type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum RobotType {
     /// General purpose mobile robot
+    #[default]
     Mobile = 0,
     /// Manipulator arm
     Manipulator = 1,
@@ -58,12 +60,6 @@ pub enum RobotType {
     Transport = 6,
     /// Cleaning/maintenance robot
     Service = 7,
-}
-
-impl Default for RobotType {
-    fn default() -> Self {
-        Self::Mobile
-    }
 }
 
 impl Default for RobotState {
@@ -219,8 +215,10 @@ pub struct FleetStatus {
 /// Coordination mode for fleet operation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum CoordinationMode {
     /// Decentralized - robots coordinate directly
+    #[default]
     Decentralized = 0,
     /// Centralized - single coordinator assigns tasks
     Centralized = 1,
@@ -230,12 +228,6 @@ pub enum CoordinationMode {
     MarketBased = 3,
     /// Swarm behavior - emergent coordination
     Swarm = 4,
-}
-
-impl Default for CoordinationMode {
-    fn default() -> Self {
-        Self::Decentralized
-    }
 }
 
 impl Default for FleetStatus {
@@ -403,8 +395,10 @@ pub struct TaskAssignment {
 /// Task type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum TaskType {
     /// Navigate to a location
+    #[default]
     Navigation = 0,
     /// Pick and place operation
     Manipulation = 1,
@@ -430,17 +424,13 @@ pub enum TaskType {
     Custom = 255,
 }
 
-impl Default for TaskType {
-    fn default() -> Self {
-        Self::Navigation
-    }
-}
-
 /// Task execution status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum TaskStatus {
     /// Task assigned but not started
+    #[default]
     Assigned = 0,
     /// Task in progress
     InProgress = 1,
@@ -454,12 +444,6 @@ pub enum TaskStatus {
     Paused = 5,
     /// Task aborted due to emergency
     Aborted = 6,
-}
-
-impl Default for TaskStatus {
-    fn default() -> Self {
-        Self::Assigned
-    }
 }
 
 impl Default for TaskAssignment {
@@ -588,8 +572,10 @@ pub struct FormationControl {
 /// Formation type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum FormationType {
     /// Line formation
+    #[default]
     Line = 0,
     /// Column formation
     Column = 1,
@@ -605,12 +591,6 @@ pub enum FormationType {
     LeaderFollower = 6,
     /// Custom formation
     Custom = 255,
-}
-
-impl Default for FormationType {
-    fn default() -> Self {
-        Self::Line
-    }
 }
 
 impl FormationControl {
@@ -698,8 +678,10 @@ pub struct AuctionBid {
 /// Bid status enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum BidStatus {
     /// Bid submitted and active
+    #[default]
     Active = 0,
     /// Bid won the auction
     Won = 1,
@@ -709,12 +691,6 @@ pub enum BidStatus {
     Withdrawn = 3,
     /// Bid expired
     Expired = 4,
-}
-
-impl Default for BidStatus {
-    fn default() -> Self {
-        Self::Active
-    }
 }
 
 impl AuctionBid {

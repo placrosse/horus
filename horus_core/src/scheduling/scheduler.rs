@@ -1415,22 +1415,22 @@ impl Scheduler {
         });
 
         if let Some(rate) = node_rate {
-            println!(
+            print_line(&format!(
                 "Added {} '{}' with priority {} at {:.1}Hz (logging: {})",
                 if is_rt_node { "RT node" } else { "node" },
                 node_name,
                 priority,
                 rate,
                 logging_enabled
-            );
+            ));
         } else {
-            println!(
+            print_line(&format!(
                 "Added {} '{}' with priority {} (logging: {})",
                 if is_rt_node { "RT node" } else { "node" },
                 node_name,
                 priority,
                 logging_enabled
-            );
+            ));
         }
 
         self
@@ -1637,10 +1637,10 @@ impl Scheduler {
                         match registered.node.init(ctx) {
                             Ok(()) => {
                                 registered.initialized = true;
-                                println!("Initialized node '{}'", node_name);
+                                print_line(&format!("Initialized node '{}'", node_name));
                             }
                             Err(e) => {
-                                println!("Failed to initialize node '{}': {}", node_name, e);
+                                print_line(&format!("Failed to initialize node '{}': {}", node_name, e));
                                 ctx.transition_to_error(format!("Initialization failed: {}", e));
                             }
                         }
@@ -1874,7 +1874,7 @@ impl Scheduler {
                         use std::sync::atomic::{AtomicU64, Ordering};
                         static GRAPH_LOG_COUNTER: AtomicU64 = AtomicU64::new(0);
                         let count = GRAPH_LOG_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
-                        if count % 100 == 0 {
+                        if count.is_multiple_of(100) {
                             println!(
                                 "Dependency Graph - Nodes: {}, Edges: {}, Levels: {}",
                                 graph_stats.total_nodes,

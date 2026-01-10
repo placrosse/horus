@@ -31,7 +31,7 @@ use horus_core::error::HorusResult;
 
 /// Force/torque sensor model with predefined specifications
 #[allow(non_camel_case_types)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum FtSensorModel {
     ATI_Nano17,    // ±12 N, ±120 Nmm
     ATI_Mini40,    // ±240 N, ±6 Nm
@@ -43,13 +43,8 @@ pub enum FtSensorModel {
     OnRobot_HexE,  // ±400 N, ±20 Nm
     Weiss_KMS40,   // ±400 N, ±15 Nm
     Optoforce_HEX, // ±200 N, ±4 Nm
-    Generic,       // User-defined ranges
-}
-
-impl Default for FtSensorModel {
-    fn default() -> Self {
-        Self::Generic
-    }
+    #[default]
+    Generic, // User-defined ranges
 }
 
 impl FtSensorModel {

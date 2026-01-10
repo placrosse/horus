@@ -261,20 +261,15 @@ pub struct HeatSource {
 }
 
 /// Heat radiation pattern
-#[derive(Reflect, Clone)]
+#[derive(Reflect, Clone, Default)]
 pub enum HeatPattern {
     /// Radiates equally in all directions
+    #[default]
     Isotropic,
     /// Radiates in a cone
     Directional { direction: Vec3, cone_angle: f32 },
     /// Radiates from a surface
     Surface { normal: Vec3 },
-}
-
-impl Default for HeatPattern {
-    fn default() -> Self {
-        Self::Isotropic
-    }
 }
 
 /// Thermal image storage

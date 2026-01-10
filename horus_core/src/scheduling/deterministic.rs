@@ -332,14 +332,13 @@ impl ExecutionTrace {
     /// Save trace to file
     pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
         let file = std::fs::File::create(path)?;
-        serde_json::to_writer_pretty(file, self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+        serde_json::to_writer_pretty(file, self).map_err(std::io::Error::other)
     }
 
     /// Load trace from file
     pub fn load(path: &std::path::Path) -> std::io::Result<Self> {
         let file = std::fs::File::open(path)?;
-        serde_json::from_reader(file).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+        serde_json::from_reader(file).map_err(std::io::Error::other)
     }
 }
 

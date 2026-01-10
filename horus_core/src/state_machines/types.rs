@@ -137,22 +137,19 @@ impl From<&str> for Event {
 }
 
 /// Priority level for events.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, Default,
+)]
 pub enum EventPriority {
     /// Low priority - processed after normal events
     Low = 0,
     /// Normal priority - default processing order
+    #[default]
     Normal = 1,
     /// High priority - processed before normal events
     High = 2,
     /// Critical - processed immediately, bypasses queue
     Critical = 3,
-}
-
-impl Default for EventPriority {
-    fn default() -> Self {
-        EventPriority::Normal
-    }
 }
 
 /// Result of attempting a state transition.

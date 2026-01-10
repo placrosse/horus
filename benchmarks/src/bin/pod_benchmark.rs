@@ -213,7 +213,7 @@ fn generate_visualizations(
     });
 
     std::fs::write(
-        &format!("{}/results_{}.json", output_dir, timestamp),
+        format!("{}/results_{}.json", output_dir, timestamp),
         serde_json::to_string_pretty(&results)?,
     )?;
 
